@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct SideDrawerView: View {
+struct SideBarView: View {
     @Binding var isShowing: Bool
     
     var body: some View {
@@ -62,5 +62,5 @@ struct MenuButton: View {
 }
 
 #Preview {
-    SideDrawerView(isShowing: .constant(true))
+    SideBarView(isShowing: .constant(true))
 }

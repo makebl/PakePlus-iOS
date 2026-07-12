@@ -1,12 +1,10 @@
 name: Build IPA
 
 on:
-    push:
-        branches:
-            - main
-    pull_request:
-        branches:
-            - main
+    workflow_dispatch:
+    # push:
+    #     branches:
+    #         - main
 
 permissions:
     contents: write
@@ -43,6 +41,28 @@ jobs:
                   echo 'export THEOS=$HOME/theos' >> $HOME/.zshrc
                   export THEOS=$HOME/theos
 
+            - uses: pnpm/action-setup@v3
+              with:
+                  version: latest
+
+            - name: Sync node version and setup cache
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: pnpm
+
+            - name: Init Project Config
+              run: |
+                  pnpm install
+                  pnpm pp:worker
+
+            - name: Generate AppIcon
+              run: |
+                  echo "Installing appicon tool..."
+                  brew install Nonchalant/appicon/appicon
+                  echo "Generating AppIcon..."
+                  appicon app-icon.png --output-path ./PakePlus/Assets.xcassets/AppIcon.appiconset
+
             - name: Build IPA Package
               run: |
                   export THEOS=$HOME/theos
@@ -56,14 +76,26 @@ jobs:
                   echo "IPA File: $IPA_PATH"
                   echo "ipa_path=$IPA_PATH" >> $GITHUB_ENV
 
+            - name: Rename IPA File
+              run: |
+                  NAME="${{ env.NAME }}"
+                  VERSION="${{ env.VERSION }}"
+                  IPA_PATH="${{ env.ipa_path }}"
+                  DIR=$(dirname "$IPA_PATH")
+                  NEW_NAME="${NAME}-${VERSION}.ipa"
+                  NEW_PATH="${DIR}/${NEW_NAME}"
+                  mv "$IPA_PATH" "$NEW_PATH"
+                  echo "Renamed IPA: $NEW_PATH"
+                  echo "ipa_path=$NEW_PATH" >> $GITHUB_ENV
+                  ls -l $DIR
+
             - name: Upload IPA to GitHub Releases
-              uses: softprops/action-gh-release@v2
+              uses: softprops/action-gh-release@v1
               with:
                   files: ${{ env.ipa_path }}
-                  tag_name: 'pakeplus-v1.0.0'
-                  body: 'pakeplus-v1.0.0'
+                  tag_name: '${{ env.NAME }}'
+                  name: '${{ env.NAME }} v${{ env.VERSION }}'
+                  body: '${{ env.PUBBODY }}'
                   draft: false
-                  prerelease: false
-                  publish: false
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
