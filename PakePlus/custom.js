@@ -1,125 +1,182 @@
-// very important, if you don't know what it is, don't touch it
-// 非常重要，不懂代码不要动，这里可以解决80%的问题，也可以生产1000+的bug
-const __pp_isBlobUrl = (url) =>
-    typeof url === 'string' && url.startsWith('blob:')
-
-const __pp_guessExtFromMime = (mime) => {
-    const m = (mime || '').toLowerCase()
-    const map = {
-        'application/pdf': 'pdf',
-        'image/png': 'png',
-        'image/jpeg': 'jpg',
-        'image/gif': 'gif',
-        'image/webp': 'webp',
-        'text/plain': 'txt',
-        'application/json': 'json',
-        'application/zip': 'zip',
-        'application/octet-stream': 'bin',
-    }
-    return map[m] || ''
-}
-
-const __pp_readBlobAsBase64 = (blob) =>
-    new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => {
-            const result = reader.result || ''
-            const comma = result.indexOf(',')
-            resolve(comma >= 0 ? result.slice(comma + 1) : result)
-        }
-        reader.onerror = () =>
-            reject(reader.error || new Error('read blob failed'))
-        reader.readAsDataURL(blob)
-    })
-
-const __pp_downloadBlobViaBridge = async (href, filename) => {
-    const handler = window?.webkit?.messageHandlers?.blobDownload
-    if (!handler) return false
-
-    const id = `pp_${Date.now()}_${Math.random().toString(16).slice(2)}`
-    try {
-        // blob: 只能在页面上下文读取
-        const res = await fetch(href)
-        const blob = await res.blob()
-
-        let name = filename || 'download'
-        const ext = __pp_guessExtFromMime(blob.type)
-        if (ext && !name.toLowerCase().endsWith(`.${ext}`)) {
-            name = `${name}.${ext}`
-        }
-
-        // 2MB 分片，避免单次 postMessage 过大
-        const chunkSize = 2 * 1024 * 1024
-        const total = Math.max(1, Math.ceil(blob.size / chunkSize))
-
-        handler.postMessage({
-            action: 'start',
-            id,
-            filename: name,
-            mimeType: blob.type || '',
-            size: blob.size || 0,
-            totalChunks: total,
-        })
-
-        for (let i = 0; i < total; i++) {
-            const part = blob.slice(
-                i * chunkSize,
-                Math.min(blob.size, (i + 1) * chunkSize)
-            )
-            const base64 = await __pp_readBlobAsBase64(part)
-            handler.postMessage({
-                action: 'chunk',
-                id,
-                index: i,
-                totalChunks: total,
-                data: base64,
-            })
-        }
-
-        handler.postMessage({ action: 'finish', id })
-        return true
-    } catch (err) {
-        try {
-            handler.postMessage({
-                action: 'error',
-                id,
-                message: String(err && err.message ? err.message : err),
-            })
-        } catch (_) {}
-        return false
-    }
-}
+window.addEventListener("DOMContentLoaded",()=>{const t=document.createElement("script");t.src="https://www.googletagmanager.com/gtag/js?id=G-W5GKHM0893",t.async=!0,document.head.appendChild(t);const n=document.createElement("script");n.textContent="window.dataLayer = window.dataLayer || [];function gtag(){dataLayer.push(arguments);}gtag('js', new Date());gtag('config', 'G-W5GKHM0893');",document.body.appendChild(n)});// ==================== 链接跳转处理 ====================
 
 const hookClick = (e) => {
-    const origin = e.target.closest('a')
-    const isBaseTargetBlank = document.querySelector(
-        'head base[target="_blank"]'
-    )
-    if (!origin || !origin.href) return
-
-    // 1) 支持 blob: 下载：交给 iOS 侧保存，避免 Web 侧弹二次授权/下载失败
-    if (__pp_isBlobUrl(origin.href)) {
-        e.preventDefault()
-        __pp_downloadBlobViaBridge(
-            origin.href,
-            origin.getAttribute('download') || origin.download
-        ).then((ok) => {
-            // bridge 不可用或失败：降级为原始行为
-            if (!ok) location.href = origin.href
-        })
+    // 防止某些特殊情况下 e.target 不是普通元素
+    if (!(e.target instanceof Element)) {
         return
     }
 
-    // 2) 原有逻辑：拦截 _blank / base[target=_blank]
-    if (origin.target === '_blank' || isBaseTargetBlank) {
+    const origin = e.target.closest('a[href]')
+
+    if (!origin) {
+        return
+    }
+
+    // 判断当前链接是否应该打开新窗口
+    const baseElement = document.querySelector(
+        'head base[target="_blank"]'
+    )
+
+    const shouldHandle =
+        origin.target === '_blank' ||
+        (
+            !origin.target &&
+            baseElement
+        )
+
+    if (shouldHandle) {
         e.preventDefault()
-        location.href = origin.href
+
+        console.log('handle origin:', origin)
+
+        // 在当前页面打开
+        window.location.href = origin.href
+    } else {
+        console.log('not handle origin:', origin)
     }
 }
 
+
+// ==================== window.open 处理 ====================
+
+// 保存原始的 window.open，必要时可以恢复
+const originalWindowOpen = window.open
+
 window.open = function (url, target, features) {
-    console.log('open', url, target, features)
-    location.href = url
+    console.log('open:', url, target, features)
+
+    // 防止没有传入有效地址
+    if (!url) {
+        return null
+    }
+
+    // 强制在当前页面跳转
+    window.location.href = url
+
+    return null
 }
 
-document.addEventListener('click', hookClick, { capture: true })
+
+// 使用捕获阶段监听点击事件
+document.addEventListener(
+    'click',
+    hookClick,
+    {
+        capture: true
+    }
+)
+
+
+// ==================== 下拉刷新处理 ====================
+
+let startY = 0
+let distance = 0
+let isPulling = false
+let isRefreshing = false
+
+// 下拉超过 80 像素时触发刷新
+const refreshThreshold = 80
+
+document.addEventListener(
+    'touchstart',
+    (e) => {
+        // 正在刷新时不重复处理
+        if (isRefreshing) {
+            return
+        }
+
+        // 页面没有滚动到顶部时，不触发下拉刷新
+        if (window.scrollY !== 0) {
+            return
+        }
+
+        if (!e.touches || !e.touches.length) {
+            return
+        }
+
+        startY = e.touches[0].clientY
+        distance = 0
+        isPulling = true
+
+        console.log('开始检测下拉刷新')
+    },
+    {
+        passive: true
+    }
+)
+
+document.addEventListener(
+    'touchmove',
+    (e) => {
+        if (!isPulling || isRefreshing) {
+            return
+        }
+
+        if (!e.touches || !e.touches.length) {
+            return
+        }
+
+        const currentY = e.touches[0].clientY
+        const moveDistance = currentY - startY
+
+        // 手指向上滑动时，不处理
+        if (moveDistance <= 0) {
+            distance = 0
+            return
+        }
+
+        // 限制最大下拉距离
+        distance = Math.min(moveDistance, 120)
+
+        // 阻止页面正常滚动
+        e.preventDefault()
+
+        if (distance >= refreshThreshold) {
+            console.log('释放手指即可刷新')
+        } else {
+            console.log('继续下拉')
+        }
+    },
+    {
+        // 必须设置为 false，否则 preventDefault() 无效
+        passive: false
+    }
+)
+
+document.addEventListener(
+    'touchend',
+    () => {
+        if (!isPulling || isRefreshing) {
+            return
+        }
+
+        isPulling = false
+
+        if (distance >= refreshThreshold) {
+            isRefreshing = true
+
+            console.log('正在刷新页面...')
+
+            // 重新加载当前页面
+            window.location.reload()
+        } else {
+            console.log('下拉距离不足，不刷新')
+        }
+
+        distance = 0
+    },
+    {
+        passive: true
+    }
+)
+
+document.addEventListener(
+    'touchcancel',
+    () => {
+        isPulling = false
+        distance = 0
+    },
+    {
+        passive: true
+    }
+)
