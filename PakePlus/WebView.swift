@@ -216,6 +216,57 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
         }
     }
 
+    // MARK: - WKUIDelegate: JS alert/confirm/prompt panels
+
+    // window.alert()
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo) {
+        DispatchQueue.main.async {
+            guard let topVC = Coordinator.topViewController() else { return }
+            let alert = UIAlertController(title: frame.request.url?.host ?? "", message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "确定", style: .default))
+            topVC.present(alert, animated: true)
+        }
+    }
+
+    // window.confirm()  ← 关键修复：删除确认弹窗
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        DispatchQueue.main.async {
+            guard let topVC = Coordinator.topViewController() else {
+                completionHandler(false)
+                return
+            }
+            let alert = UIAlertController(title: frame.request.url?.host ?? "", message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: { _ in
+                completionHandler(false)
+            }))
+            alert.addAction(UIAlertAction(title: "确定", style: .default, handler: { _ in
+                completionHandler(true)
+            }))
+            topVC.present(alert, animated: true)
+        }
+    }
+
+    // window.prompt()
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+        DispatchQueue.main.async {
+            guard let topVC = Coordinator.topViewController() else {
+                completionHandler(nil)
+                return
+            }
+            let alert = UIAlertController(title: frame.request.url?.host ?? "", message: prompt, preferredStyle: .alert)
+            alert.addTextField { textField in
+                textField.text = defaultText ?? ""
+            }
+            alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: { _ in
+                completionHandler(nil)
+            }))
+            alert.addAction(UIAlertAction(title: "确定", style: .default, handler: { _ in
+                completionHandler(alert.textFields?.first?.text)
+            }))
+            topVC.present(alert, animated: true)
+        }
+    }
+
     // MARK: - WKUIDelegate: system vs web permissions
 
     @available(iOS 15.0, *)
@@ -477,8 +528,8 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
     }
 
     private static func topViewController(base: UIViewController? = UIApplication.shared.connectedScenes
-        .compactMap { $0 as? UIWindowScene }
-        .flatMap { $0.windows })
+        .compactMap({ $0 as? UIWindowScene })
+        .flatMap({ $0.windows })
         .first(where: { $0.isKeyWindow })?.rootViewController) -> UIViewController?
     {
         if let nav = base as? UINavigationController {
