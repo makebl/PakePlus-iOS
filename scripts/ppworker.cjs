@@ -6,7 +6,7 @@ const ppconfig = require('./ppconfig.json')
 
 const updateContentView = async (safeArea) => {
     try {
-        const contentViewPath = path.join(__n__, '../PakePlus/ContentView.swift')
+        const contentViewPath = path.join(__dirname, '../PakePlus/ContentView.swift')
         let content = await fs.readFile(contentViewPath, 'utf8')
         if (safeArea === 'all') {
             console.log('safeArea is all')
@@ -104,7 +104,6 @@ const updateInfoPlist = async (showName, debug, webUrl, isHtml, safeArea, userAg
         const launchPath = path.join(__dirname, '../launch.jpg')
         const launchImageDir = path.join(__dirname, '../PakePlus/Assets.xcassets/LaunchScreen.imageset')
         const launchImagePath = path.join(launchImageDir, 'launch.jpg')
-        // ensure dir exists before copying
         fs.mkdirSync(launchImageDir, { recursive: true })
         fs.copyFileSync(launchPath, launchImagePath)
         console.log('Copied launchImage to LaunchScreen.imageset')
