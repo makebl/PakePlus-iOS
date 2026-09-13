@@ -61,19 +61,13 @@ setTimeout(removeInjectedViewport, 500)
 setTimeout(removeInjectedViewport, 1000)
 
 // ==================== 修复 WKWebView flex 布局问题 ====================
-// WKWebView 对 flex 容器的行高计算有偏差，可能导致列表项被挤掉
-// 这里注入全局 CSS 修复常见布局问题
+// 只针对邮箱列表项，不影响全局滚动
 const fixStyle = document.createElement('style')
 fixStyle.textContent = `
-/* 修复 WKWebView flex 布局：避免子元素被截断 */
-* {
+/* 只修复 flex 列表项收缩，不影响 body/html 滚动 */
+li, [class*="mail-item"], [class*="card-item"], [class*="list-item"] {
     -webkit-flex-shrink: 0 !important;
     flex-shrink: 0 !important;
-}
-/* 邮箱列表常见容器修复 */
-[class*="mail"], [class*="list"], [class*="card"], [class*="item"] {
-    min-height: 0 !important;
-    overflow: visible !important;
 }
 `
 document.head.appendChild(fixStyle)
@@ -86,6 +80,7 @@ let isPulling = false
 let isRefreshing = false
 const refreshThreshold = 80
 
+// 使用 capture 阶段 + non-passive 确保 preventDefault 生效
 document.addEventListener('touchstart', (e) => {
     if (isRefreshing) return
     if (window.scrollY !== 0) return
@@ -93,7 +88,7 @@ document.addEventListener('touchstart', (e) => {
     startY = e.touches[0].clientY
     distance = 0
     isPulling = true
-}, { passive: true })
+}, { capture: true, passive: false })
 
 document.addEventListener('touchmove', (e) => {
     if (!isPulling || isRefreshing) return
@@ -106,12 +101,13 @@ document.addEventListener('touchmove', (e) => {
     }
     distance = Math.min(moveDistance, 120)
     e.preventDefault()
+    e.stopPropagation()
     if (distance >= refreshThreshold) {
         console.log('释放手指即可刷新')
     } else {
         console.log('继续下拉')
     }
-}, { passive: false })
+}, { capture: true, passive: false })
 
 document.addEventListener('touchend', () => {
     if (!isPulling || isRefreshing) return
@@ -124,9 +120,9 @@ document.addEventListener('touchend', () => {
         console.log('下拉距离不足，不刷新')
     }
     distance = 0
-}, { passive: true })
+}, { capture: true, passive: false })
 
 document.addEventListener('touchcancel', () => {
     isPulling = false
     distance = 0
-}, { passive: true })
+}, { capture: true, passive: false })
