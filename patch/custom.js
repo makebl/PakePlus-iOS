@@ -1,6 +1,5 @@
 // ==================== 禁用双指缩放 ====================
 
-// 注入 viewport meta，禁止用户缩放
 const injectViewport = () => {
     const existing = document.querySelector('meta[name="viewport"]')
     if (existing) existing.remove()
@@ -59,46 +58,82 @@ let isPulling = false
 let isRefreshing = false
 const refreshThreshold = 80
 
-// 检查触摸位置是否在页面顶部（所有滚动容器都在顶部）
-const canPullToRefresh = (x, y) => {
-    // 1. 检查 window/document 整体滚动
-    if (window.scrollY > 0) return false
-    if (window.pageYOffset > 0) return false
-    if (document.documentElement.scrollTop > 0) return false
-    if (document.body.scrollTop > 0) return false
+// 用 flag 追踪滚动状态（解决 WKWebView window.scrollY 不更新的问题）
+let isAtTop = true
+let internalScrollTops = new Map()  // 记录各滚动容器的 scrollTop
 
-    // 2. 用 elementFromPoint 找到触摸点下方的元素
-    const element = document.elementFromPoint(x, y)
-    if (!element) return true
+// 检查是否所有滚动位置都在顶部
+const checkAllAtTop = () => {
+    // 检查 window/document 整体滚动
+    const winScroll = window.scrollY || window.pageYOffset || 0
+    const docScroll = document.documentElement.scrollTop || 0
+    const bodyScroll = document.body.scrollTop || 0
 
-    // 3. 向上遍历所有祖先元素，直接检查 scrollTop
-    // 不依赖 overflow 属性，只要 scrollTop > 0 就不允许下拉
-    let current = element
-    let depth = 0
-    while (current && current !== document.documentElement && depth < 50) {
-        if (current.scrollTop > 0) {
-            return false
-        }
-        current = current.parentElement
-        depth++
+    if (winScroll > 0 || docScroll > 0 || bodyScroll > 0) {
+        return false
+    }
+
+    // 检查 visualViewport（WKWebView 可能用这个）
+    if (window.visualViewport && window.visualViewport.pageTop > 0) {
+        return false
+    }
+
+    // 检查内部滚动容器
+    for (const [el, top] of internalScrollTops.entries()) {
+        if (top > 0) return false
     }
 
     return true
 }
+
+// 监听 window 滚动（capture 阶段，捕获所有滚动）
+const onScroll = (e) => {
+    // 更新整体滚动状态
+    const winScroll = window.scrollY || window.pageYOffset || 0
+    const docScroll = document.documentElement.scrollTop || 0
+    const bodyScroll = document.body.scrollTop || 0
+
+    const winAtTop = winScroll === 0 && docScroll === 0 && bodyScroll === 0
+
+    // 更新内部滚动容器状态
+    const target = e.target
+    if (target && target !== document && target !== window &&
+        target !== document.body && target !== document.documentElement) {
+        // 记录该元素的 scrollTop
+        internalScrollTops.set(target, target.scrollTop || 0)
+    }
+
+    // 综合判断
+    isAtTop = checkAllAtTop()
+}
+
+// 用 capture 阶段监听所有滚动事件（包括内部 div）
+window.addEventListener('scroll', onScroll, { passive: true, capture: true })
+document.addEventListener('scroll', onScroll, { passive: true, capture: true })
+
+
+// 定期检查滚动状态（兜底，防止某些情况下 scroll 事件不触发）
+setInterval(() => {
+    isAtTop = checkAllAtTop()
+}, 500)
 
 
 document.addEventListener('touchstart', (e) => {
     if (isRefreshing) return
     if (!e.touches || !e.touches.length) return
 
-    const touch = e.touches[0]
-
-    // 检查当前触摸位置是否可以触发下拉刷新
-    if (!canPullToRefresh(touch.clientX, touch.clientY)) {
+    // 关键：检查是否在顶部（用追踪的 flag，不用实时读取）
+    if (!isAtTop) {
         return
     }
 
-    startY = touch.clientY
+    // 双重检查：实时读取一次
+    if (!checkAllAtTop()) {
+        isAtTop = false
+        return
+    }
+
+    startY = e.touches[0].clientY
     distance = 0
     isPulling = true
 }, { passive: true })
