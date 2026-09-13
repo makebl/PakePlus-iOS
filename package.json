@@ -6,7 +6,9 @@
     "scripts": {
         "pp:worker": "node ./scripts/ppworker.cjs",
         "restore": "git restore .",
-        "merge:main": "git checkout main && git merge web3 && git push"
+        "icon": "appicon app-icon.png --output-path ./PakePlus/Assets.xcassets/AppIcon.appiconset",
+        "merge:main": "git checkout main && git merge web3 && git push",
+        "build:ipa": "make package FINALPACKAGE=1 PACKAGE_FORMAT=ipa"
     },
     "keywords": [
         "pakeplus",
@@ -17,6 +19,12 @@
     "dependencies": {
         "commander": "^13.1.0",
         "fs-extra": "^11.3.0",
+        "plist": "^3.1.0",
         "sharp": "^0.34.1"
+    },
+    "pnpm": {
+        "onlyBuiltDependencies": [
+            "sharp"
+        ]
     }
 }
