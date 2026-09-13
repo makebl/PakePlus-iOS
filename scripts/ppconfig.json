@@ -130,7 +130,7 @@
         "pubBody": "PakePlus ios build body",
         "isHtml": false,
         "debug": false,
-        "safeArea": "fullscreen"
+        "safeArea": "top"
     },
     "android": {
         "name": "PakePlus",
