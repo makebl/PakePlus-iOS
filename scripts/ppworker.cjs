@@ -6,9 +6,11 @@ const ppconfig = require('./ppconfig.json')
 
 const updateContentView = async (safeArea) => {
     try {
-        const contentViewPath = path.join(__dirname, '../PakePlus/ContentView.swift')
+        const contentViewPath = path.join(__n__, '../PakePlus/ContentView.swift')
         let content = await fs.readFile(contentViewPath, 'utf8')
-        if (safeArea === 'top') {
+        if (safeArea === 'all') {
+            console.log('safeArea is all')
+        } else if (safeArea === 'top') {
             content = content.replace(/edges: \[\]/, `edges: [.leading, .trailing, .bottom]`)
         } else if (safeArea === 'bottom') {
             content = content.replace(/edges: \[\]/, `edges: [.top, .leading, .trailing]`)
@@ -22,8 +24,57 @@ const updateContentView = async (safeArea) => {
             content = content.replace(/edges: \[\]/, `edges: [.leading, .trailing]`)
         }
         await fs.writeFile(contentViewPath, content)
-        console.log(`Updated safeArea: ${safeArea}`)
-    } catch (error) { console.error('safeArea error:', error) }
+        console.log(`Updated safeArea to: ${safeArea}`)
+    } catch (error) {
+        console.error('Error updating safeArea:', error)
+    }
+}
+
+const updatePPPwdHtml = (startMethod, startPwd, pwdTitle, pwdBtn, pwdPlace, pwdTip, pwdError, pwdStyle, pwdTheme, webUrl, isHtml) => {
+    try {
+        const indexHtmlPath = path.join(__dirname, './www/pppwd.html')
+        if (!fs.existsSync(indexHtmlPath)) {
+            console.log('pppwd.html not found, skip')
+            return
+        }
+        const indexHtml = fs.readFileSync(indexHtmlPath, 'utf-8')
+        const targetUrl = isHtml ? './index.html' : webUrl
+        const newIndexHtml = indexHtml
+            .replaceAll('startMethod', startMethod)
+            .replaceAll('startPwd', startPwd || '123456')
+            .replaceAll('pwdTitle', pwdTitle || '请输入密码')
+            .replaceAll('pwdBtn', pwdBtn || '验证')
+            .replaceAll('pwdPlace', pwdPlace || '')
+            .replaceAll('pwdTip', pwdTip || '')
+            .replaceAll('pwdError', pwdError || '密码错误')
+            .replaceAll('pwdStyle', pwdStyle || 'flat')
+            .replaceAll('pwdTheme', pwdTheme || 'dark')
+            .replaceAll('https://pakeplus.com/', targetUrl)
+        fs.writeFileSync(indexHtmlPath, newIndexHtml)
+        console.log('updatePPPwdHtml success')
+    } catch (error) {
+        console.error('Error updating pppwd.html:', error)
+    }
+}
+
+const updateProject = async (newBundleId, showName, direction = 'default') => {
+    const pbxprojPath = path.join(__dirname, '../PakePlus.xcodeproj/project.pbxproj')
+    try {
+        let content = fs.readFileSync(pbxprojPath, 'utf8')
+        content = content.replaceAll(/PRODUCT_BUNDLE_IDENTIFIER = (.*?);/g, `PRODUCT_BUNDLE_IDENTIFIER = ${newBundleId};`)
+        content = content.replaceAll(/INFOPLIST_KEY_CFBundleDisplayName = (.*?);/g, '')
+        if (direction === 'default') {
+            content = content.replaceAll(/INFOPLIST_KEY_UISupportedInterfaceOrientations = (.*?);/g, `INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";`)
+        } else if (direction === 'vertical') {
+            content = content.replaceAll(/INFOPLIST_KEY_UISupportedInterfaceOrientations = (.*?);/g, `INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait";`)
+        } else if (direction === 'horizontal') {
+            content = content.replaceAll(/INFOPLIST_KEY_UISupportedInterfaceOrientations = (.*?);/g, `INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";`)
+        }
+        fs.writeFileSync(pbxprojPath, content)
+        console.log(`Updated project success`)
+    } catch (error) {
+        console.error('Error updating Bundle ID:', error)
+    }
 }
 
 const updateInfoPlist = async (showName, debug, webUrl, isHtml, safeArea, userAgent, launchImage, screenOn, startMethod) => {
@@ -50,28 +101,29 @@ const updateInfoPlist = async (showName, debug, webUrl, isHtml, safeArea, userAg
     infoPlistData.FULLSCREEN = (safeArea === 'fullscreen')
     if (launchImage) {
         infoPlistData.LAUNCHIMAGE = true
-        fs.copyFileSync(path.join(__dirname, '../launch.jpg'), path.join(__dirname, '../PakePlus/Assets.xcassets/LaunchScreen.imageset/launch.jpg'))
+        const launchPath = path.join(__dirname, '../launch.jpg')
+        const launchImageDir = path.join(__dirname, '../PakePlus/Assets.xcassets/LaunchScreen.imageset')
+        const launchImagePath = path.join(launchImageDir, 'launch.jpg')
+        // ensure dir exists before copying
+        fs.mkdirSync(launchImageDir, { recursive: true })
+        fs.copyFileSync(launchPath, launchImagePath)
+        console.log('Copied launchImage to LaunchScreen.imageset')
     } else {
         infoPlistData.LAUNCHIMAGE = false
         fs.rmSync(path.join(__dirname, '../PakePlus/Assets.xcassets/LaunchScreen.imageset'), { recursive: true, force: true })
     }
     infoPlistData.SCREENON = !!screenOn
+    console.log('new infoPlist WEBURL:', infoPlistData.WEBURL)
     fs.writeFileSync(infoPlistPath, plist.build(infoPlistData))
-    console.log('Info.plist updated, WEBURL:', infoPlistData.WEBURL)
+    console.log('Info.plist updated')
 }
 
 const main = async () => {
     const { webview, launchImage, screenOn, direction, startMethod, startPwd, pwdTitle, pwdBtn, pwdPlace, pwdTip, pwdError, pwdStyle, pwdTheme } = ppconfig.phone
     const { name, showName, version, webUrl, id, pubBody, debug, safeArea, isHtml } = ppconfig.ios
     await updateContentView(safeArea)
-    const pbxprojPath = path.join(__dirname, '../PakePlus.xcodeproj/project.pbxproj')
-    let content = fs.readFileSync(pbxprojPath, 'utf8')
-    content = content.replaceAll(/PRODUCT_BUNDLE_IDENTIFIER = (.*?);/g, `PRODUCT_BUNDLE_IDENTIFIER = ${id};`)
-    content = content.replaceAll(/INFOPLIST_KEY_CFBundleDisplayName = (.*?);/g, '')
-    if (direction === 'default') {
-        content = content.replaceAll(/INFOPLIST_KEY_UISupportedInterfaceOrientations = (.*?);/g, `INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";`)
-    }
-    fs.writeFileSync(pbxprojPath, content)
+    updatePPPwdHtml(startMethod, startPwd, pwdTitle, pwdBtn, pwdPlace, pwdTip, pwdError, pwdStyle, pwdTheme, webUrl, isHtml)
+    await updateProject(id, showName, direction)
     const envPath = process.env.GITHUB_ENV
     if (envPath) {
         fs.appendFileSync(envPath, `NAME=${name}\nVERSION=${version}\nPUBBODY=${pubBody}\nISHTML=${isHtml}\n`)
