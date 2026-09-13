@@ -77,9 +77,95 @@ const updateProject = async (newBundleId, showName, direction = 'default') => {
     } catch (error) {
         console.error('Error updating Bundle ID:', error)
         throw error
-        }
-} catch (error) {
-    console.error('Error updating Bundle ID:', error)
-    throw error
+    }
 }
+
+const updateInfoPlist = async (showName, debug, webUrl, isHtml, safeArea, userAgent, launchImage, screenOn, clearCache, startMethod) => {
+    const infoPlistPath = path.join(__dirname, '../PakePlus/Info.plist')
+    const infoPlist = fs.readFileSync(infoPlistPath, 'utf8')
+    const infoPlistData = plist.parse(infoPlist)
+    infoPlistData.CFBundleDisplayName = showName
+    if (startMethod === 'password' || startMethod === 'oncePwd') {
+        infoPlistData.WEBURL = 'https://www.password.com/'
+        fs.copySync(path.join(__dirname, './www'), path.join(__dirname, '../PakePlus'))
+    } else if (isHtml) {
+        infoPlistData.WEBURL = 'https://www.pakeplus.com/'
+        fs.copySync(path.join(__dirname, './www'), path.join(__dirname, '../PakePlus'))
+    } else {
+        infoPlistData.WEBURL = webUrl
+        fs.rmSync(path.join(__dirname, '../PakePlus/index.html'), { force: true })
+    }
+    if (debug) {
+        infoPlistData.DEBUG = debug
+    } else {
+        fs.rmSync(path.join(__dirname, '../PakePlus/vConsole.js'), { force: true })
+    }
+    infoPlistData.USERAGENT = userAgent || ''
+    infoPlistData.FULLSCREEN = (safeArea === 'fullscreen')
+    infoPlistData.CLEARCACHE = !!clearCache
+    if (launchImage) {
+        infoPlistData.LAUNCHIMAGE = true
+        const launchPath = path.join(__dirname, '../launch.jpg')
+        const launchImageDir = path.join(__dirname, '../PakePlus/Assets.xcassets/LaunchScreen.imageset')
+        const launchImagePath = path.join(launchImageDir, 'launch.jpg')
+        fs.mkdirSync(launchImageDir, { recursive: true })
+        fs.copyFileSync(launchPath, launchImagePath)
+        console.log('Copied launchImage to LaunchScreen.imageset')
+    } else {
+        infoPlistData.LAUNCHIMAGE = false
+        fs.rmSync(path.join(__dirname, '../PakePlus/Assets.xcassets/LaunchScreen.imageset'), { recursive: true, force: true })
+    }
+    infoPlistData.SCREENON = !!screenOn
+    console.log('new infoPlist WEBURL:', infoPlistData.WEBURL)
+    console.log('new infoPlist CFBundleDisplayName:', infoPlistData.CFBundleDisplayName)
+    console.log('new infoPlist CLEARCACHE:', infoPlistData.CLEARCACHE)
+    fs.writeFileSync(infoPlistPath, plist.build(infoPlistData))
+    console.log('Info.plist updated')
 }
+
+const main = async () => {
+    // 修复:从 ppconfig.ios 取 clearCache/userAgent/screenOn，不是 ppconfig.phone.webview
+    const { launchImage, direction, startMethod, startPwd, pwdTitle, pwdBtn, pwdPlace, pwdTip, pwdError, pwdStyle, pwdTheme } = ppconfig.phone || {}
+    const { name, showName, version, webUrl, id, pubBody, debug, safeArea, isHtml } = ppconfig.ios || {}
+    const clearCache = ppconfig.ios.clearCache
+    const userAgent = ppconfig.ios.userAgent
+    const screenOn = ppconfig.ios.screenOn
+    console.log('Config loaded:')
+    console.log('  name:', name)
+    console.log('  showName:', showName)
+    console.log('  webUrl:', webUrl)
+    console.log('  id:', id)
+    console.log('  clearCache:', clearCache)
+    console.log('  userAgent:', userAgent)
+    console.log('  screenOn:', screenOn)
+    console.log('  launchImage:', launchImage)
+    console.log('  safeArea:', safeArea)
+    console.log('  startMethod:', startMethod)
+    await updateContentView(safeArea)
+    updatePPPwdHtml(startMethod, startPwd, pwdTitle, pwdBtn, pwdPlace, pwdTip, pwdError, pwdStyle, pwdTheme, webUrl, isHtml)
+    await updateProject(id, showName, direction)
+    const envPath = process.env.GITHUB_ENV
+    if (envPath) {
+        fs.appendFileSync(envPath, `NAME=${name}\nVERSION=${version}\nPUBBODY=${pubBody}\nISHTML=${isHtml}\n`)
+    }
+    await updateInfoPlist(showName, debug, webUrl, isHtml, safeArea, userAgent, launchImage, screenOn, clearCache, startMethod)
+    // 最终验证
+    const infoPlistPath = path.join(__dirname, '../PakePlus/Info.plist')
+    const finalPlist = fs.readFileSync(infoPlistPath, 'utf8')
+    const finalData = plist.parse(finalPlist)
+    console.log('\n===== 最终验证 =====')
+    console.log('CFBundleDisplayName:', finalData.CFBundleDisplayName)
+    console.log('WEBURL:', finalData.WEBURL)
+    console.log('Worker Success')
+}
+
+(async () => {
+    try {
+        console.log('worker start')
+        await main()
+        console.log('worker end')
+    } catch (e) {
+        console.error('Worker Error:', e)
+        process.exit(1)
+    }
+})()
