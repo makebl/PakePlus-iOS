@@ -127,7 +127,7 @@ struct WebView: UIViewRepresentable {
 }
 
 // swifui coordinator
-class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, CLLocationManagerDelegate {
+class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, CLLocationManagerDelegate, UIDocumentPickerDelegate {
     private let onLoadFinished: (() -> Void)?
     private var didFinishMainFrameOnce = false
     private var locationManager: CLLocationManager?
@@ -149,6 +149,9 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
 
     // blob downloads
     private var blobDownloads: [String: BlobDownloadState] = [:]
+
+    // file upload state: 存储文件选择回调
+    private var fileUploadCompletionHandler: (([URL]?) -> Void)?
 
     // disable zoom
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
@@ -228,7 +231,7 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
         }
     }
 
-    // window.confirm()  ← 关键修复：删除确认弹窗
+    // window.confirm()
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
         DispatchQueue.main.async {
             guard let topVC = Coordinator.topViewController() else {
@@ -265,6 +268,42 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
             }))
             topVC.present(alert, animated: true)
         }
+    }
+
+    // MARK: - WKUIDelegate: file upload (<input type="file">)
+
+    // 处理 <input type="file" multiple> 多选文件
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+        DispatchQueue.main.async {
+            self.fileUploadCompletionHandler = completionHandler
+            // 允许选择任意文件（可多选）
+            let documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+            documentPicker.delegate = self
+            documentPicker.allowsMultipleSelection = parameters.allowsMultipleSelection
+            documentPicker.modalPresentationStyle = .formSheet
+            guard let topVC = Coordinator.topViewController() else {
+                completionHandler(nil)
+                return
+            }
+            topVC.present(documentPicker, animated: true)
+        }
+    }
+
+    // MARK: - UIDocumentPickerDelegate
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        // 通知作用域
+        for url in urls {
+            // 启用沙盒访问权限
+            _ = url.startAccessingSecurityScopedResource()
+        }
+        fileUploadCompletionHandler?(urls)
+        fileUploadCompletionHandler = nil
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        fileUploadCompletionHandler?(nil)
+        fileUploadCompletionHandler = nil
     }
 
     // MARK: - WKUIDelegate: system vs web permissions
