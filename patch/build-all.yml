@@ -58,6 +58,20 @@ jobs:
                   echo "VERSION=$VERSION" >> $GITHUB_ENV
                   echo "Version: $VERSION"
 
+            - name: Generate App Slug
+              shell: bash
+              env:
+                  APP_NAME: ${{ inputs.app_name }}
+                  BUNDLE_ID: ${{ inputs.bundle_id }}
+              run: |
+                  # 从应用名提取字母数字，纯中文则用 bundle_id 最后一段
+                  SLUG=$(echo "$APP_NAME" | tr -cd '[:alnum:]')
+                  if [ -z "$SLUG" ]; then
+                    SLUG=$(echo "$BUNDLE_ID" | awk -F. '{print $NF}')
+                  fi
+                  echo "APP_SLUG=$SLUG" >> $GITHUB_ENV
+                  echo "App Slug: $SLUG"
+
             - name: Download App Icon
               shell: bash
               env:
@@ -135,6 +149,9 @@ jobs:
 
             - name: Build IPA
               shell: bash
+              env:
+                  VERSION: ${{ env.VERSION }}
+                  APP_SLUG: ${{ env.APP_SLUG }}
               run: |
                   set +e
                   xcodebuild -project PakePlus.xcodeproj -scheme PakePlus -configuration Release -sdk iphoneos CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
@@ -158,13 +175,16 @@ jobs:
                   if [ "${ISHTML:-false}" = "true" ]; then
                       cp -R ./scripts/www/* ./Payload/PakePlus.app/
                   fi
-                  zip -r PakePlus-ios-${{ env.VERSION }}.ipa Payload
-                  ls -la PakePlus-ios-${{ env.VERSION }}.ipa
+                  IPA_NAME="${APP_SLUG}-ios-${VERSION}.ipa"
+                  echo "打包文件名: $IPA_NAME"
+                  zip -r "$IPA_NAME" Payload
+                  ls -la "$IPA_NAME"
+                  echo "IPA_NAME=$IPA_NAME" >> $GITHUB_ENV
 
             - name: Create Release
               uses: softprops/action-gh-release@v1
               with:
-                  files: PakePlus-ios-${{ env.VERSION }}.ipa
+                  files: ${{ env.IPA_NAME }}
                   tag_name: ios-v${{ env.VERSION }}
                   name: ${{ inputs.app_name }} iOS v${{ env.VERSION }}
                   body: |
@@ -208,6 +228,20 @@ jobs:
                   fi
                   echo "VERSION=$VERSION" >> $GITHUB_ENV
                   echo "Version: $VERSION"
+
+            - name: Generate App Slug
+              shell: bash
+              env:
+                  APP_NAME: ${{ inputs.app_name }}
+                  BUNDLE_ID: ${{ inputs.bundle_id }}
+              run: |
+                  # 从应用名提取字母数字，纯中文则用 bundle_id 最后一段
+                  SLUG=$(echo "$APP_NAME" | tr -cd '[:alnum:]')
+                  if [ -z "$SLUG" ]; then
+                    SLUG=$(echo "$BUNDLE_ID" | awk -F. '{print $NF}')
+                  fi
+                  echo "APP_SLUG=$SLUG" >> $GITHUB_ENV
+                  echo "App Slug: $SLUG"
 
             - name: Download App Icon
               shell: bash
@@ -282,14 +316,21 @@ jobs:
               run: ./gradlew assembleDebug --no-daemon
 
             - name: Rename APK
+              shell: bash
+              env:
+                  VERSION: ${{ env.VERSION }}
+                  APP_SLUG: ${{ env.APP_SLUG }}
               run: |
                   cd app/build/outputs/apk/debug/
-                  cp app-debug.apk PakePlus-android-${{ env.VERSION }}.apk
+                  APK_NAME="${APP_SLUG}-android-${VERSION}.apk"
+                  echo "APK 文件名: $APK_NAME"
+                  cp app-debug.apk "$APK_NAME"
+                  echo "APK_NAME=$APK_NAME" >> $GITHUB_ENV
 
             - name: Create Release
               uses: softprops/action-gh-release@v1
               with:
-                  files: app/build/outputs/apk/debug/PakePlus-android-${{ env.VERSION }}.apk
+                  files: app/build/outputs/apk/debug/${{ env.APK_NAME }}
                   tag_name: android-v${{ env.VERSION }}
                   name: ${{ inputs.app_name }} Android v${{ env.VERSION }}
                   body: |
