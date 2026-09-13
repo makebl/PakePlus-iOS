@@ -31,6 +31,8 @@ struct WebView: UIViewRepresentable {
         webConfiguration.allowsAirPlayForMediaPlayback = true
         webConfiguration.allowsPictureInPictureMediaPlayback = true
         webConfiguration.selectionGranularity = .character
+        // 使用持久化的 WebsiteDataStore（保存 cookie/localStorage）
+        webConfiguration.websiteDataStore = WKWebsiteDataStore.default()
         // enable developer extras
         if #available(iOS 16.4, *) {
             webConfiguration.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -71,14 +73,21 @@ struct WebView: UIViewRepresentable {
             webView.customUserAgent = userAgent
         }
 
-        // clear cache if enabled
+        // clear cache if enabled (只清 HTTP 缓存，保留 cookie/localStorage)
         let clearCache = Bundle.main.object(forInfoDictionaryKey: "CLEARCACHE") as? Bool ?? false
         if clearCache {
             URLCache.shared.removeAllCachedResponses()
             URLCache.shared.diskCapacity = 0
             URLCache.shared.memoryCapacity = 0
+            // 只清 HTTP 缓存，保留 cookies/sessionStorage/localStorage
             let dateFrom = Date(timeIntervalSince1970: 0)
-            WKWebsiteDataStore.default().removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: dateFrom, completionHandler: {})
+            let cacheDataTypes: Set<String> = [
+                WKWebsiteDataTypeDiskCache,
+                WKWebsiteDataTypeMemoryCache,
+                WKWebsiteDataTypeFetchCache,
+                WKWebsiteDataTypeServiceWorkerRegistrations
+            ]
+            WKWebsiteDataStore.default().removeData(ofTypes: cacheDataTypes, modifiedSince: dateFrom, completionHandler: {})
         }
 
         // load custom script (at documentStart, before page renders)
@@ -106,8 +115,6 @@ struct WebView: UIViewRepresentable {
             webView.load(URLRequest(url: webUrl, cachePolicy: cachePolicy))
         }
 
-        // delegate 设置
-
         // Add gesture recognizers
         let rightSwipeGesture = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRightSwipe(_:)))
         rightSwipeGesture.direction = .right
@@ -124,7 +131,6 @@ struct WebView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 
-    // add coordinator to prevent zoom
     func makeCoordinator() -> Coordinator {
         Coordinator(onLoadFinished: onLoadFinished)
     }
@@ -136,7 +142,6 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
     private var didFinishMainFrameOnce = false
     private var locationManager: CLLocationManager?
 
-    // init
     init(onLoadFinished: (() -> Void)?) {
         self.onLoadFinished = onLoadFinished
         super.init()
@@ -151,26 +156,20 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
         var buffer: Data
     }
 
-    // blob downloads
     private var blobDownloads: [String: BlobDownloadState] = [:]
-
-    // file upload state: 存储文件选择回调
     private var fileUploadCompletionHandler: (([URL]?) -> Void)?
 
     // disable zoom
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-        // disable zoom
         return nil
     }
 
-    // Handle right swipe gesture
     @objc func handleRightSwipe(_ gesture: UISwipeGestureRecognizer) {
         if let webView = gesture.view as? WKWebView, webView.canGoBack {
             webView.goBack()
         }
     }
 
-    // Handle left swipe gesture
     @objc func handleLeftSwipe(_ gesture: UISwipeGestureRecognizer) {
         if let webView = gesture.view as? WKWebView, webView.canGoForward {
             webView.goForward()
@@ -179,14 +178,12 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
 
     // MARK: - WKNavigationDelegate
 
-    // intercept navigation, recognize common file types and trigger download
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
             return
         }
 
-        // handle special schemes (tel/mailto/sms/etc.) by handing off to system.
         if let scheme = url.scheme?.lowercased(),
            isExternalAppScheme(scheme)
         {
@@ -195,7 +192,6 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
             return
         }
 
-        // only trigger download when user clicks link, other navigation load normally
         if navigationAction.navigationType == .linkActivated, shouldDownload(url: url) {
             decisionHandler(.cancel)
             downloadFile(from: url)
@@ -225,7 +221,6 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
 
     // MARK: - WKUIDelegate: JS alert/confirm/prompt panels
 
-    // window.alert()
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo) {
         DispatchQueue.main.async {
             guard let topVC = Coordinator.topViewController() else { return }
@@ -235,7 +230,6 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
         }
     }
 
-    // window.confirm()
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
         DispatchQueue.main.async {
             guard let topVC = Coordinator.topViewController() else {
@@ -253,7 +247,6 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
         }
     }
 
-    // window.prompt()
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
         DispatchQueue.main.async {
             guard let topVC = Coordinator.topViewController() else {
@@ -275,12 +268,11 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
     }
 
     // MARK: - WKUIDelegate: file upload (<input type="file">)
-    // 注意：WKOpenPanelParameters 仅在 iOS 18.4+ 可用，需加 @available 标注
+
     @available(iOS 18.4, *)
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
         DispatchQueue.main.async {
             self.fileUploadCompletionHandler = completionHandler
-            // 允许选择任意文件（可多选）
             let documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
             documentPicker.delegate = self
             documentPicker.allowsMultipleSelection = parameters.allowsMultipleSelection
@@ -296,9 +288,7 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
     // MARK: - UIDocumentPickerDelegate
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        // 通知作用域
         for url in urls {
-            // 启用沙盒访问权限
             _ = url.startAccessingSecurityScopedResource()
         }
         fileUploadCompletionHandler?(urls)
@@ -364,7 +354,7 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
     }
 
     // MARK: - WKScriptMessageHandler (blob download bridge)
-    // 修复：WKContentController -> WKUserContentController
+
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "blobDownload" else { return }
         guard let body = message.body as? [String: Any] else { return }
