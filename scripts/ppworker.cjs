@@ -77,7 +77,7 @@ const updateProject = async (newBundleId, showName, direction = 'default') => {
     }
 }
 
-const updateInfoPlist = async (showName, debug, webUrl, isHtml, safeArea, userAgent, launchImage, screenOn, startMethod) => {
+const updateInfoPlist = async (showName, debug, webUrl, isHtml, safeArea, userAgent, launchImage, screenOn, clearCache, startMethod) => {
     const infoPlistPath = path.join(__dirname, '../PakePlus/Info.plist')
     const infoPlist = fs.readFileSync(infoPlistPath, 'utf8')
     const infoPlistData = plist.parse(infoPlist)
@@ -99,6 +99,7 @@ const updateInfoPlist = async (showName, debug, webUrl, isHtml, safeArea, userAg
     }
     infoPlistData.USERAGENT = userAgent || ''
     infoPlistData.FULLSCREEN = (safeArea === 'fullscreen')
+    infoPlistData.CLEARCACHE = !!clearCache
     if (launchImage) {
         infoPlistData.LAUNCHIMAGE = true
         const launchPath = path.join(__dirname, '../launch.jpg')
@@ -113,6 +114,7 @@ const updateInfoPlist = async (showName, debug, webUrl, isHtml, safeArea, userAg
     }
     infoPlistData.SCREENON = !!screenOn
     console.log('new infoPlist WEBURL:', infoPlistData.WEBURL)
+    console.log('new infoPlist CLEARCACHE:', infoPlistData.CLEARCACHE)
     fs.writeFileSync(infoPlistPath, plist.build(infoPlistData))
     console.log('Info.plist updated')
 }
@@ -120,6 +122,7 @@ const updateInfoPlist = async (showName, debug, webUrl, isHtml, safeArea, userAg
 const main = async () => {
     const { webview, launchImage, screenOn, direction, startMethod, startPwd, pwdTitle, pwdBtn, pwdPlace, pwdTip, pwdError, pwdStyle, pwdTheme } = ppconfig.phone
     const { name, showName, version, webUrl, id, pubBody, debug, safeArea, isHtml } = ppconfig.ios
+    const clearCache = webview.clearCache
     await updateContentView(safeArea)
     updatePPPwdHtml(startMethod, startPwd, pwdTitle, pwdBtn, pwdPlace, pwdTip, pwdError, pwdStyle, pwdTheme, webUrl, isHtml)
     await updateProject(id, showName, direction)
@@ -127,7 +130,7 @@ const main = async () => {
     if (envPath) {
         fs.appendFileSync(envPath, `NAME=${name}\nVERSION=${version}\nPUBBODY=${pubBody}\nISHTML=${isHtml}\n`)
     }
-    await updateInfoPlist(showName, debug, webUrl, isHtml, safeArea, webview.userAgent, launchImage, screenOn, startMethod)
+    await updateInfoPlist(showName, debug, webUrl, isHtml, safeArea, webview.userAgent, launchImage, screenOn, clearCache, startMethod)
     console.log('Worker Success')
 }
 

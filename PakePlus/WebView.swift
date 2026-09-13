@@ -42,468 +42,224 @@ struct WebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: webConfiguration)
         webView.uiDelegate = context.coordinator
         webView.navigationDelegate = context.coordinator
-        // transparent background
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
-        // JS bridge: blob download
-        webView.configuration.userContentController.add(context.coordinator, name: "blobDownload")
-
-        // debug script
-        if debug, let debugScript = WebView.loadJSFile(named: "vConsole") {
-            let fullScript = debugScript + "\nvar vConsole = new window.VConsole();"
-            let userScript = WKUserScript(
-                source: fullScript,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-            webView.configuration.userContentController.addUserScript(userScript)
-            if #available(iOS 16.4, *) {
-                webView.isInspectable = true
-            }
-        }
-        // config userAgent
         if !userAgent.isEmpty {
             webView.customUserAgent = userAgent
         }
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+        if debug {
+            if #available(iOS 16.4, *) {
+                webView.isInspectable = true
+            } else {
+                webView.setValue(true, forKey: "inspectable")
+            }
+        }
+        // enable scroll
+        webView.scrollView.isScrollEnabled = true
+        // enable bounce
+        webView.scrollView.bounces = true
+        // enable zoom
+        webView.scrollView.minimumZoomScale = 1.0
+        webView.scrollView.maximumZoomScale = 1.0
 
-        // disable double tap zoom
-        let script = """
-            var meta = document.createElement('meta');
-            meta.name = 'viewport';
-            meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
-            document.head.appendChild(meta);
-        """
-        let scriptInjection = WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: false)
-        webView.configuration.userContentController.addUserScript(scriptInjection)
-
-        // load custom script
-        if let customScript = WebView.loadJSFile(named: "custom") {
-            let userScript = WKUserScript(
-                source: customScript,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-            webView.configuration.userContentController.addUserScript(userScript)
+        let clearCache = Bundle.main.object(forInfoDictionaryKey: "CLEARCACHE") as? Bool ?? false
+        if clearCache {
+            URLCache.shared.removeAllCachedResponses()
+            URLCache.shared.diskCapacity = 0
+            URLCache.shared.memoryCapacity = 0
+            let dateStore = WKWebsiteDataStore.default()
+            dateStore.fetchDataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes()) { records in
+                dateStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), for: records) {
+                    print("清除缓存完成")
+                }
+            }
         }
 
-        if webUrl.host?.contains("pakeplus.com") == true {
-            // load html file
-            if let url = Bundle.main.url(forResource: "index", withExtension: "html") {
-                webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-            }
-        } else if webUrl.host?.contains("password.com") == true {
-            if let url = Bundle.main.url(forResource: "pppwd", withExtension: "html") {
-                webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-            }
-        } else {
-            // load url
-            webView.load(URLRequest(url: webUrl))
-        }
-
-        // delegate 设置
-
-        // Add gesture recognizers
-        let rightSwipeGesture = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRightSwipe(_:)))
-        rightSwipeGesture.direction = .right
-        webView.addGestureRecognizer(rightSwipeGesture)
-
-        let leftSwipeGesture = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleLeftSwipe(_:)))
-        leftSwipeGesture.direction = .left
-        webView.addGestureRecognizer(leftSwipeGesture)
-
-        context.coordinator.prepareWebGeolocationAuthorization()
+        let request = URLRequest(url: webUrl, cachePolicy: clearCache ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy)
+        webView.load(request)
 
         return webView
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    func updateUIView(_ uiView: WKWebView, context: Context) {
 
-    // add coordinator to prevent zoom
+    }
+
     func makeCoordinator() -> Coordinator {
-        Coordinator(onLoadFinished: onLoadFinished)
-    }
-}
-
-// swifui coordinator
-class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, CLLocationManagerDelegate {
-    private let onLoadFinished: (() -> Void)?
-    private var didFinishMainFrameOnce = false
-    private var locationManager: CLLocationManager?
-
-    // init
-    init(onLoadFinished: (() -> Void)?) {
-        self.onLoadFinished = onLoadFinished
-        super.init()
+        Coordinator(self)
     }
 
-    // blob download state
-    private struct BlobDownloadState {
-        var filename: String
-        var mimeType: String
-        var totalChunks: Int
-        var receivedChunkIndexes: Set<Int>
-        var buffer: Data
-    }
+    class Coordinator: NSObject, WKUIDelegate, WKNavigationDelegate, CLLocationManagerDelegate {
+        var parent: WebView
+        var locationManager: CLLocationManager?
+        var currentGeolocationCallback: ((CLAuthorizationStatus) -> Void)?
 
-    // blob downloads
-    private var blobDownloads: [String: BlobDownloadState] = [:]
-
-    // disable zoom
-    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-        // disable zoom
-        return nil
-    }
-
-    // Handle right swipe gesture
-    @objc func handleRightSwipe(_ gesture: UISwipeGestureRecognizer) {
-        if let webView = gesture.view as? WKWebView, webView.canGoBack {
-            webView.goBack()
-        }
-    }
-
-    // Handle left swipe gesture
-    @objc func handleLeftSwipe(_ gesture: UISwipeGestureRecognizer) {
-        if let webView = gesture.view as? WKWebView, webView.canGoForward {
-            webView.goForward()
-        }
-    }
-
-    // MARK: - WKNavigationDelegate
-
-    // intercept navigation, recognize common file types and trigger download
-    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        guard let url = navigationAction.request.url else {
-            decisionHandler(.allow)
-            return
+        init(_ parent: WebView) {
+            self.parent = parent
         }
 
-        // handle special schemes (tel/mailto/sms/etc.) by handing off to system.
-        if let scheme = url.scheme?.lowercased(),
-           isExternalAppScheme(scheme)
-        {
-            decisionHandler(.cancel)
-            openExternalURL(url)
-            return
+        // MARK: WKUIDelegate
+
+        // request camera and microphone permission
+        func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType, decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+            decisionHandler(.grant)
         }
 
-        // only trigger download when user clicks link, other navigation load normally
-        if navigationAction.navigationType == .linkActivated, shouldDownload(url: url) {
-            decisionHandler(.cancel)
-            downloadFile(from: url)
-            return
-        }
-
-        decisionHandler(.allow)
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        guard !didFinishMainFrameOnce else { return }
-        didFinishMainFrameOnce = true
-
-        DispatchQueue.main.async { [onLoadFinished] in
-            onLoadFinished?()
-        }
-    }
-
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        guard !didFinishMainFrameOnce else { return }
-        didFinishMainFrameOnce = true
-
-        DispatchQueue.main.async { [onLoadFinished] in
-            onLoadFinished?()
-        }
-    }
-
-    // MARK: - WKUIDelegate: system vs web permissions
-
-    @available(iOS 15.0, *)
-    func webView(_ webView: WKWebView,
-                 requestMediaCapturePermissionFor origin: WKSecurityOrigin,
-                 initiatedByFrame frame: WKFrameInfo,
-                 type: WKMediaCaptureType,
-                 decisionHandler: @escaping (WKPermissionDecision) -> Void)
-    {
-        decisionHandler(permissionDecisionForMediaCapture(type: type))
-    }
-
-    @available(iOS 15.0, *)
-    private func permissionDecisionForMediaCapture(type: WKMediaCaptureType) -> WKPermissionDecision {
-        let video = AVCaptureDevice.authorizationStatus(for: .video)
-        let audio = AVCaptureDevice.authorizationStatus(for: .audio)
-
-        let authorized: Bool
-        let deniedOrRestricted: Bool
-        switch type {
-        case .camera:
-            authorized = video == .authorized
-            deniedOrRestricted = video == .denied || video == .restricted
-        case .microphone:
-            authorized = audio == .authorized
-            deniedOrRestricted = audio == .denied || audio == .restricted
-        case .cameraAndMicrophone:
-            authorized = video == .authorized && audio == .authorized
-            deniedOrRestricted = video == .denied || video == .restricted || audio == .denied || audio == .restricted
-        @unknown default:
-            return .prompt
-        }
-
-        if authorized { return .grant }
-        if deniedOrRestricted { return .deny }
-        return .prompt
-    }
-
-    func prepareWebGeolocationAuthorization() {
-        guard locationManager == nil else { return }
-        let manager = CLLocationManager()
-        manager.delegate = self
-        locationManager = manager
-        switch manager.authorizationStatus {
-        case .notDetermined:
-            manager.requestWhenInUseAuthorization()
-        case .authorizedAlways, .authorizedWhenInUse, .denied, .restricted:
-            break
-        @unknown default:
-            break
-        }
-    }
-
-    // MARK: - WKScriptMessageHandler (blob download bridge)
-
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "blobDownload" else { return }
-        guard let body = message.body as? [String: Any] else { return }
-
-        let action = (body["action"] as? String) ?? ""
-        let id = (body["id"] as? String) ?? ""
-        if id.isEmpty { return }
-
-        switch action {
-        case "start":
-            let filename = sanitizeFilename((body["filename"] as? String) ?? "download")
-            let mimeType = (body["mimeType"] as? String) ?? ""
-            let totalChunks = max(1, (body["totalChunks"] as? Int) ?? 1)
-            blobDownloads[id] = BlobDownloadState(
-                filename: filename,
-                mimeType: mimeType,
-                totalChunks: totalChunks,
-                receivedChunkIndexes: [],
-                buffer: Data()
-            )
-            showDownloadStartedHint()
-
-        case "chunk":
-            guard var state = blobDownloads[id] else { return }
-            guard let index = body["index"] as? Int else { return }
-            guard let base64 = body["data"] as? String else { return }
-
-            if state.receivedChunkIndexes.contains(index) { return }
-            guard let chunkData = Data(base64Encoded: base64) else { return }
-
-            state.buffer.append(chunkData)
-            state.receivedChunkIndexes.insert(index)
-            blobDownloads[id] = state
-
-        case "finish":
-            guard let state = blobDownloads[id] else { return }
-            blobDownloads.removeValue(forKey: id)
-
-            guard state.receivedChunkIndexes.count >= state.totalChunks else { return }
-            saveAndShareBlobData(state.buffer, filename: state.filename)
-
-        case "error":
-            blobDownloads.removeValue(forKey: id)
-            if let msg = body["message"] as? String, !msg.isEmpty {
-                print("blob download failed: \(msg)")
+        // camera
+        func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+            if ((navigationAction.request.url?.absoluteString) != nil) {
+                webView.load(URLRequest(url: navigationAction.request.url!))
             }
-
-        default:
-            return
-        }
-    }
-
-    private func sanitizeFilename(_ name: String) -> String {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return "download" }
-        return trimmed
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: ":", with: "_")
-    }
-
-    private func saveAndShareBlobData(_ data: Data, filename: String) {
-        let fileManager = FileManager.default
-        let tempDir = fileManager.temporaryDirectory
-        let destinationURL = tempDir.appendingPathComponent(filename)
-
-        try? fileManager.removeItem(at: destinationURL)
-        do {
-            try data.write(to: destinationURL, options: [.atomic])
-        } catch {
-            print("save blob file failed: \(error.localizedDescription)")
-            return
+            return nil
         }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.presentShareSheet(for: destinationURL)
-        }
-    }
-
-    private func shouldDownload(url: URL) -> Bool {
-        let pathExtension = url.pathExtension.lowercased()
-        if pathExtension.isEmpty { return false }
-
-        let downloadableExtensions: Set<String> = [
-            "png", "jpg", "jpeg", "gif", "bmp", "webp", "heic",
-            "mp4", "mov", "m4v", "avi", "mkv",
-            "mp3", "wav", "aac", "m4a", "flac",
-            "txt", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-            "zip", "rar", "7z"
-        ]
-
-        return downloadableExtensions.contains(pathExtension)
-    }
-
-    private func isExternalAppScheme(_ scheme: String) -> Bool {
-        switch scheme {
-        case "tel", "mailto", "sms", "facetime", "facetime-audio":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func openExternalURL(_ url: URL) {
-        DispatchQueue.main.async {
-            UIApplication.shared.open(url, options: [:], completionHandler: nil)
-        }
-    }
-
-    private func downloadFile(from url: URL) {
-        print("start downloading file: \(url.absoluteString)")
-        showDownloadStartedHint()
-        let task = URLSession.shared.downloadTask(with: url) { [weak self] tempURL, response, error in
-            if let error = error {
-                print("download failed: \(error.localizedDescription)")
-                return
+        // alert
+        func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            let okAction = UIAlertAction(title: "确定", style: .default) { _ in
+                completionHandler()
             }
-
-            guard let tempURL = tempURL else {
-                print("download failed: temporary file not found")
-                return
+            alert.addAction(okAction)
+            if let viewController = UIApplication.shared.connectedScenes
+                .compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController })
+                .first {
+                viewController.present(alert, animated: true)
             }
+        }
 
-            let suggestedName = (response as? HTTPURLResponse)?
-                .allHeaderFields["Content-Disposition"] as? String
+        // confirm
+        func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, decisionHandler: @escaping (Bool) -> Void) {
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            let okAction = UIAlertAction(title: "确定", style: .default) { _ in
+                decisionHandler(true)
+            }
+            alert.addAction(okAction)
+            let cancelAction = UIAlertAction(title: "取消", style: .cancel) { _ in
+                decisionHandler(false)
+            }
+            alert.addAction(cancelAction)
+            if let viewController = UIApplication.shared.connectedScenes
+                .compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController })
+                .first {
+                viewController.present(alert, animated: true)
+            }
+        }
 
-            let fileName: String
-            if let suggestedName,
-               let range = suggestedName.range(of: "filename=")
-            {
-                let namePart = String(suggestedName[range.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: "\"; "))
-                fileName = namePart.isEmpty ? url.lastPathComponent : namePart
+        // prompt
+        func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+            let alert = UIAlertController(title: prompt, message: nil, preferredStyle: .alert)
+            let okAction = UIAlertAction(title: "确定", style: .default) { _ in
+                completionHandler(alert.textFields?.first?.text)
+            }
+            alert.addAction(okAction)
+            let cancelAction = UIAlertAction(title: "取消", style: .cancel) { _ in
+                completionHandler(nil)
+            }
+            alert.addAction(cancelAction)
+            alert.addTextField { textField in
+                textField.text = defaultText
+            }
+            if let viewController = UIApplication.shared.connectedScenes
+                .compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController })
+                .first {
+                viewController.present(alert, animated: true)
+            }
+        }
+
+        // MARK: WKNavigationDelegate
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            parent.onLoadFinished?()
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            print("WebView load failed:", error.localizedDescription)
+            parent.onLoadFinished?()
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            print("WebView load provisional failed:", error.localizedDescription)
+            parent.onLoadFinished?()
+        }
+
+        // download file
+        func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+            download.delegate = self
+        }
+
+        // file download
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if navigationAction.shouldPerformDownload {
+                decisionHandler(.download)
             } else {
-                fileName = url.lastPathComponent.isEmpty ? "file" : url.lastPathComponent
+                decisionHandler(.allow)
             }
+        }
 
-            let fileManager = FileManager.default
-            let tempDir = fileManager.temporaryDirectory
-            let destinationURL = tempDir.appendingPathComponent(fileName)
+        func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+            download.delegate = self
+        }
 
-            try? fileManager.removeItem(at: destinationURL)
-
-            do {
-                try fileManager.moveItem(at: tempURL, to: destinationURL)
-            } catch {
-                print("failed to move download file: \(error.localizedDescription)")
+        func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+            let mimeType = navigationResponse.response.mimeType ?? ""
+            print("mimeType:", mimeType)
+            let url = navigationResponse.response.url?.absoluteString ?? ""
+            print("url:", url)
+            // file download
+            if let httpResponse = navigationResponse.response as? HTTPURLResponse,
+               let contentDisposition = httpResponse.allHeaderFields["Content-Disposition"] as? String,
+               contentDisposition.contains("attachment") {
+                decisionHandler(.download)
                 return
             }
-
-            print("download finished, temporary save path: \(destinationURL.path)")
-
-            DispatchQueue.main.async {
-                self?.presentShareSheet(for: destinationURL)
+            let suffix = (url as NSString).pathExtension
+            let downloadSuffix = ["png", "jpg", "jpeg", "gif", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "zip", "rar", "7z", "mp4", "mp3", "txt", "csv", "apk", "exe", "dmg", "pkg", "iso"]
+            if downloadSuffix.contains(suffix) {
+                decisionHandler(.download)
+            } else {
+                decisionHandler(.allow)
             }
         }
 
-        task.resume()
-    }
+        // MARK: CLLocationManagerDelegate
 
-    private func showDownloadStartedHint() {
-        DispatchQueue.main.async {
-            guard let window = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .flatMap({ $0.windows })
-                .first(where: { $0.isKeyWindow }) else { return }
-
-            let label = UILabel()
-            label.text = "start downloading..."
-            label.font = .systemFont(ofSize: 15, weight: .medium)
-            label.textColor = .white
-            label.backgroundColor = .systemBlue
-            label.textAlignment = .center
-            label.layer.cornerRadius = 8
-            label.clipsToBounds = true
-            label.alpha = 0
-
-            let padding: CGFloat = 16
-            let topMargin: CGFloat = 20
-            label.sizeToFit()
-            label.frame.size.width += padding * 2
-            label.frame.size.height += padding
-            let yCenter = window.safeAreaInsets.top + label.frame.height / 2 + topMargin
-            label.center = CGPoint(x: window.bounds.midX, y: yCenter)
-
-            window.addSubview(label)
-
-            UIView.animate(withDuration: 0.25, animations: { label.alpha = 1 })
-            UIView.animate(withDuration: 0.25, delay: 1.75, options: [], animations: { label.alpha = 0 }) { _ in
-                label.removeFromSuperview()
-            }
+        func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
+            currentGeolocationCallback?(status)
+            currentGeolocationCallback = nil
         }
-    }
-
-    private func presentShareSheet(for fileURL: URL) {
-        let activityVC = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
-        activityVC.popoverPresentationController?.sourceView = UIApplication.shared.windows.first { $0.isKeyWindow }
-
-        if let topVC = Coordinator.topViewController() {
-            topVC.present(activityVC, animated: true, completion: nil)
-        } else {
-            print("top view controller not found, cannot show share sheet")
-        }
-    }
-
-    private static func topViewController(base: UIViewController? = UIApplication.shared.connectedScenes
-        .compactMap { $0 as? UIWindowScene }
-        .flatMap { $0.windows }
-        .first(where: { $0.isKeyWindow })?.rootViewController) -> UIViewController?
-    {
-        if let nav = base as? UINavigationController {
-            return topViewController(base: nav.visibleViewController)
-        }
-        if let tab = base as? UITabBarController, let selected = tab.selectedViewController {
-            return topViewController(base: selected)
-        }
-        if let presented = base?.presentedViewController {
-            return topViewController(base: presented)
-        }
-        return base
     }
 }
 
-extension WebView {
-    static func loadJSFile(named filename: String) -> String? {
-        guard let path = Bundle.main.path(forResource: filename, ofType: "js") else {
-            print("Could not find \(filename).js in bundle")
-            return nil
+extension WebView.Coordinator: WKDownloadDelegate {
+    func download(_ download: WKDownload, decideDestinationUsing destinationURL: URL?, suggestedFilename: String?, completionHandler: @escaping (URL?) -> Void) {
+        let downloadsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let destURL = downloadsPath.appendingPathComponent(suggestedFilename ?? "file")
+        let path = destURL.path
+        if FileManager.default.fileExists(atPath: path) {
+            try? FileManager.default.removeItem(atPath: path)
         }
+        completionHandler(destURL)
+    }
 
-        do {
-            let jsString = try String(contentsOfFile: path, encoding: .utf8)
-            return jsString
-        } catch {
-            print("Error loading \(filename).js: \(error)")
-            return nil
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let originalURL = download.originalCall?.request.url else { return }
+        let downloadsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let destURL = downloadsPath.appendingPathComponent(download.suggestedFilename ?? "file")
+        let path = destURL.path
+        let activity = UIActivityViewController(activityItems: [destURL], applicationActivities: nil)
+        if let viewController = UIApplication.shared.connectedScenes
+            .compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController })
+            .first {
+            viewController.present(activity, animated: true)
         }
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error) {
+        print("Download failed:", error.localizedDescription)
     }
 }

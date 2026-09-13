@@ -56,7 +56,6 @@ setTimeout(removeInjectedViewport, 500)
 setTimeout(removeInjectedViewport, 1000)
 
 // ==================== 强制所有邮箱卡片可见 ====================
-// 不管什么原因隐藏了卡片，都强制显示
 const forceMailboxVisible = () => {
     const cards = document.querySelectorAll('.mailbox-card')
     console.log('找到邮箱卡片数:', cards.length)
@@ -66,7 +65,6 @@ const forceMailboxVisible = () => {
         if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
             console.warn(`卡片 ${i} (${addr}) 被隐藏了! display=${style.display} visibility=${style.visibility} opacity=${style.opacity}`)
         }
-        // 强制可见
         card.style.setProperty('display', 'block', 'important')
         card.style.setProperty('visibility', 'visible', 'important')
         card.style.setProperty('opacity', '1', 'important')
@@ -77,12 +75,10 @@ const forceMailboxVisible = () => {
     })
 }
 
-// 监听 DOM 变化，防止 JS 后续隐藏
 const observer = new MutationObserver(() => {
     forceMailboxVisible()
 })
 
-// 初始执行 + DOM 加载后执行 + 延迟执行
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         forceMailboxVisible()
