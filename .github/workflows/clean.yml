@@ -1,0 +1,92 @@
+name: Clean (Releases/Tags/Runs)
+
+on:
+    workflow_dispatch:
+        inputs:
+            confirm:
+                description: '确认清理？输入 yes 继续'
+                required: true
+                default: 'no'
+
+permissions:
+    contents: write
+    actions: write
+
+jobs:
+    clean:
+        name: Clean All Artifacts
+        runs-on: ubuntu-latest
+        steps:
+            - name: Verify Confirmation
+              run: |
+                  if [ "${{ inputs.confirm }}" != "yes" ]; then
+                    echo "❌ 未确认，退出。请输入 yes 确认清理。"
+                    exit 1
+                  fi
+                  echo "✅ 已确认，开始清理..."
+
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Delete All Releases
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  echo "===== 1. 删除所有 Releases ====="
+                  RELEASES=$(gh release list --repo ${{ github.repository }} --limit 100 --json tagName --jq '.[].tagName' 2>/dev/null || echo "")
+                  if [ -z "$RELEASES" ]; then
+                    echo "没有 Release 可删除"
+                  else
+                    echo "$RELEASES" | while read -r tag; do
+                      if [ -n "$tag" ]; then
+                        echo "删除 Release: $tag"
+                        gh release delete "$tag" --repo ${{ github.repository }} --yes 2>/dev/null || echo "  跳过 $tag"
+                      fi
+                    done
+                  fi
+
+            - name: Delete All Tags
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  echo "\n===== 2. 删除所有 Tags ====="
+                  TAGS=$(git tag -l)
+                  if [ -z "$TAGS" ]; then
+                    echo "没有 Tag 可删除"
+                  else
+                    echo "$TAGS" | while read -r tag; do
+                      if [ -n "$tag" ]; then
+                        echo "删除 Tag: $tag"
+                        git push origin :refs/tags/$tag 2>/dev/null || echo "  跳过 $tag"
+                        git tag -d $tag 2>/dev/null || true
+                      fi
+                    done
+                  fi
+
+            - name: Delete All Workflow Runs
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  echo "\n===== 3. 删除所有 Workflow Runs ====="
+                  CURRENT_RUN_ID=${{ github.run_id }}
+                  echo "当前 run ID: $CURRENT_RUN_ID （跳过）"
+                  RUNS=$(gh run list --repo ${{ github.repository }} --limit 100 --json databaseId --jq '.[].databaseId' 2>/dev/null || echo "")
+                  if [ -z "$RUNS" ]; then
+                    echo "没有 Workflow Run 可删除"
+                  else
+                    echo "$RUNS" | while read -r run_id; do
+                      if [ -n "$run_id" ] && [ "$run_id" != "$CURRENT_RUN_ID" ]; then
+                        echo "删除 Run: $run_id"
+                        gh run delete "$run_id" --repo ${{ github.repository }} 2>/dev/null || echo "  跳过 $run_id"
+                      fi
+                    done
+                  fi
+
+            - name: Summary
+              run: |
+                  echo "\n===== 清理完成 ====="
+                  echo "剩余 Releases: $(gh release list --repo ${{ github.repository }} --limit 100 --json tagName --jq 'length' 2>/dev/null || echo 0)"
+                  echo "剩余 Tags: $(git tag -l | wc -l | tr -d ' ')"
+                  echo "剩余 Workflow Runs: $(gh run list --repo ${{ github.repository }} --limit 100 --json databaseId --jq 'length' 2>/dev/null || echo 0)"
