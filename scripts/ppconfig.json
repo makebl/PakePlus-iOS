@@ -115,7 +115,7 @@
             "setSupportZoom": true,
             "clearCache": true
         },
-        "launchImage": true,
+        "launchImage": false,
         "direction": "default",
         "startMethod": "none"
     },
