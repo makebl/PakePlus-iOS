@@ -124,6 +124,7 @@ const updateInfoPlist = async (showName, debug, webUrl, isHtml, safeArea, userAg
 }
 
 const main = async () => {
+    // 修复:从 ppconfig.ios 取 clearCache/userAgent/screenOn，不是 ppconfig.phone.webview
     const { launchImage, direction, startMethod, startPwd, pwdTitle, pwdBtn, pwdPlace, pwdTip, pwdError, pwdStyle, pwdTheme } = ppconfig.phone || {}
     const { name, showName, version, webUrl, id, pubBody, debug, safeArea, isHtml } = ppconfig.ios || {}
     const clearCache = ppconfig.ios.clearCache
@@ -148,6 +149,7 @@ const main = async () => {
         fs.appendFileSync(envPath, `NAME=${name}\nVERSION=${version}\nPUBBODY=${pubBody}\nISHTML=${isHtml}\n`)
     }
     await updateInfoPlist(showName, debug, webUrl, isHtml, safeArea, userAgent, launchImage, screenOn, clearCache, startMethod)
+    // 最终验证
     const infoPlistPath = path.join(__dirname, '../PakePlus/Info.plist')
     const finalPlist = fs.readFileSync(infoPlistPath, 'utf8')
     const finalData = plist.parse(finalPlist)
