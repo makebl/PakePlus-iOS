@@ -20,14 +20,20 @@ struct ContentView: View {
     @State private var isWebLoaded: Bool = false
 
     var body: some View {
+        // BottomMenuView()
         ZStack {
+            // webview
             WebView(
                 webUrl: URL(string: webUrl)!,
                 debug: debug,
-                onLoadFinished: { isWebLoaded = true }
+                onLoadFinished: {
+                    isWebLoaded = true
+                }
             )
             .ignoresSafeArea(edges: [.all])
             .allowsHitTesting(isWebLoaded)
+            
+            // loading screen
             if !isWebLoaded && launchImage {
                 Image("LaunchScreen")
                     .resizable()
@@ -37,9 +43,15 @@ struct ContentView: View {
             }
         }
         .statusBarHidden(fullScreen)
-        .onAppear { UIApplication.shared.isIdleTimerDisabled = screenOn }
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = screenOn
+        }
         .onChange(of: scenePhase) { phase in
             UIApplication.shared.isIdleTimerDisabled = screenOn && (phase == .active)
         }
     }
 }
+
+// #Preview {
+//     ContentView()
+// }
