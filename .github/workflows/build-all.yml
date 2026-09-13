@@ -26,7 +26,7 @@ permissions:
 jobs:
     ios:
         name: iOS IPA
-        runs-on: macos-latest
+        runs-on: macos-26
         steps:
             - name: Checkout
               uses: actions/checkout@v4
@@ -88,10 +88,9 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 22.14.0
-                  cache: pnpm
 
             - name: Install Dependencies
-              run: pnpm install
+              run: pnpm install --no-frozen-lockfile
 
             - name: Run ppworker
               run: pnpm pp:worker
@@ -203,7 +202,6 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 22.14.0
-                  cache: pnpm
 
             - name: Install ImageMagick
               run: |
@@ -211,7 +209,7 @@ jobs:
                   sudo apt-get install imagemagick
 
             - name: Install Dependencies
-              run: pnpm install
+              run: pnpm install --no-frozen-lockfile
 
             - name: Run ppworker
               run: pnpm pp:worker
