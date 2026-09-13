@@ -1,19 +1,30 @@
-name: Build IPA
+name: Build IPA (Multi)
 
 on:
     workflow_dispatch:
-    # push:
-    #     branches:
-    #         - main
 
 permissions:
     contents: write
-    pages: write
-    id-token: write
 
 jobs:
     build:
         runs-on: macos-26
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - profile: mail
+                      app_name: "自用邮箱"
+                      show_name: "自用邮箱"
+                      web_url: "https://langge.cf:8080/dashboard"
+                      bundle_id: "com.makebl.mail"
+                      version: "0.0.1"
+                    - profile: admin
+                      app_name: "自用管理"
+                      show_name: "自用管理"
+                      web_url: "https://langge.cf:8080/admin/dashboard"
+                      bundle_id: "com.makebl.admin"
+                      version: "0.0.1"
 
         steps:
             - name: Checkout Repository
@@ -32,6 +43,28 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 22.14.0
+
+            - name: Patch ppconfig.json for this matrix profile
+              run: |
+                  node -e "
+                  const fs = require('fs');
+                  const p = 'scripts/ppconfig.json';
+                  const cfg = JSON.parse(fs.readFileSync(p, 'utf8'));
+                  cfg.ios.name = process.env.APP_NAME;
+                  cfg.ios.showName = process.env.SHOW_NAME;
+                  cfg.ios.webUrl = process.env.WEB_URL;
+                  cfg.ios.id = process.env.BUNDLE_ID;
+                  cfg.ios.version = process.env.VERSION;
+                  fs.writeFileSync(p, JSON.stringify(cfg, null, 4));
+                  console.log('Patched ios config:');
+                  console.log(JSON.stringify(cfg.ios, null, 2));
+                  "
+              env:
+                  APP_NAME: ${{ matrix.app_name }}
+                  SHOW_NAME: ${{ matrix.show_name }}
+                  WEB_URL: ${{ matrix.web_url }}
+                  BUNDLE_ID: ${{ matrix.bundle_id }}
+                  VERSION: ${{ matrix.version }}
 
             - name: Init Project Config
               run: |
@@ -62,15 +95,12 @@ jobs:
                   fi
                   mkdir -p Payload
                   cp -R "$APP_PATH" Payload/
-                  NAME="${{ env.NAME }}"
-                  VERSION="${{ env.VERSION }}"
                   ISHTML="${{ env.ISHTML }}"
-                  echo "NAME=$NAME VERSION=$VERSION ISHTML=$ISHTML"
+                  echo "ISHTML=$ISHTML"
                   if [ "$ISHTML" = "true" ]; then
                       cp -R ./scripts/www/* ./Payload/PakePlus.app/
                   fi
-                  # 用英文文件名避免中文路径问题，发布时再显示中文名
-                  IPA_FILE="PakePlus-${VERSION}.ipa"
+                  IPA_FILE="PakePlus-${{ matrix.profile }}-${{ matrix.version }}.ipa"
                   zip -r "$IPA_FILE" Payload
                   mkdir -p export
                   mv "$IPA_FILE" export/
@@ -79,10 +109,10 @@ jobs:
             - name: Publish IPA
               uses: softprops/action-gh-release@v1
               with:
-                  files: export/PakePlus-${{ env.VERSION }}.ipa
-                  tag_name: 'v${{ env.VERSION }}'
-                  name: '${{ env.NAME }} v${{ env.VERSION }}'
-                  body: '${{ env.PUBBODY }}'
+                  files: export/PakePlus-${{ matrix.profile }}-${{ matrix.version }}.ipa
+                  tag_name: '${{ matrix.profile }}-v${{ matrix.version }}'
+                  name: '${{ matrix.app_name }} v${{ matrix.version }}'
+                  body: 'PakePlus iOS build for ${{ matrix.web_url }}'
                   draft: false
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
