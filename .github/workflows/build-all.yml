@@ -83,6 +83,7 @@ jobs:
             - uses: pnpm/action-setup@v4
               with:
                   version: 10
+                  run_install: false
 
             - name: Setup Node
               uses: actions/setup-node@v4
@@ -108,7 +109,7 @@ jobs:
                     exit 1
                   fi
                   mkdir -p Payload
-                  cp -R build/Build/Products/Release-iphoneos/PakePlus.app Payload/
+                  cp -R build/Build/Products/Release-Release-iphoneos/PakePlus.app Payload/
                   if [ "${ISHTML:-false}" = "true" ]; then
                     cp -R ./scripts/www/* ./Payload/PakePlus.app/
                   fi
@@ -197,6 +198,7 @@ jobs:
             - uses: pnpm/action-setup@v4
               with:
                   version: 10
+                  run_install: false
 
             - name: Setup Node
               uses: actions/setup-node@v4
