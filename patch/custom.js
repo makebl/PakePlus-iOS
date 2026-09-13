@@ -108,6 +108,52 @@ let isRefreshing = false
 // 下拉超过 80 像素时触发刷新
 const refreshThreshold = 80
 
+// 检查指定位置是否可以触发下拉刷新（即所有滚动容器都在顶部）
+const canPullToRefresh = (x, y) => {
+    // 1. 检查 window/document 滚动位置
+    const windowScrollY = window.scrollY || window.pageYOffset || 0
+    const docScrollTop = document.documentElement.scrollTop || 0
+    const bodyScrollTop = document.body.scrollTop || 0
+
+    if (windowScrollY > 0 || docScrollTop > 0 || bodyScrollTop > 0) {
+        return false
+    }
+
+    // 2. 用 elementFromPoint 找到触摸点下方的元素
+    const element = document.elementFromPoint(x, y)
+    if (!element) {
+        return true
+    }
+
+    // 3. 向上遍历 DOM 树，检查所有滚动容器
+    let current = element
+    let depth = 0
+    const maxDepth = 50  // 防止无限遍历
+
+    while (current && current !== document.documentElement && depth < maxDepth) {
+        const style = getComputedStyle(current)
+        const overflowY = style.overflowY
+
+        // 判断是否是滚动容器
+        const canScroll =
+            overflowY === 'auto' ||
+            overflowY === 'scroll' ||
+            overflowY === 'overlay'
+
+        if (canScroll && current.scrollTop > 0) {
+            // 滚动容器不在顶部，不触发下拉刷新
+            return false
+        }
+
+        current = current.parentElement
+        depth++
+    }
+
+    // 所有滚动容器都在顶部，可以触发下拉刷新
+    return true
+}
+
+
 document.addEventListener(
     'touchstart',
     (e) => {
@@ -116,16 +162,18 @@ document.addEventListener(
             return
         }
 
-        // 页面没有滚动到顶部时，不触发下拉刷新
-        if (window.scrollY !== 0) {
-            return
-        }
-
         if (!e.touches || !e.touches.length) {
             return
         }
 
-        startY = e.touches[0].clientY
+        const touch = e.touches[0]
+
+        // 检查当前触摸位置是否可以触发下拉刷新
+        if (!canPullToRefresh(touch.clientX, touch.clientY)) {
+            return
+        }
+
+        startY = touch.clientY
         distance = 0
         isPulling = true
 
