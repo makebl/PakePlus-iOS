@@ -129,7 +129,7 @@
         "desc": "PakePlus Project by 1024xiaoshen",
         "pubBody": "PakePlus ios build body",
         "isHtml": false,
-        "debug": false,
+        "debug": true,
         "safeArea": "top"
     },
     "android": {

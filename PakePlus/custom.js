@@ -55,46 +55,75 @@ setTimeout(removeInjectedViewport, 100)
 setTimeout(removeInjectedViewport, 500)
 setTimeout(removeInjectedViewport, 1000)
 
-// ==================== 修复 Bootstrap 邮箱列表在 iOS 上少显示问题 ====================
-// 原因：邮箱卡片用了 col-md-6/col-md-3，md 断点是 768px，iPhone 宽度 375-414px 不触发
-// 导致卡片布局异常，3 个邮箱只显示 2 个
-// 修复：强制邮箱卡片内的栅格列在小屏上也按桌面布局显示
+// ==================== 强制所有邮箱卡片可见 ====================
+// 不管什么原因隐藏了卡片，都强制显示
+const forceMailboxVisible = () => {
+    const cards = document.querySelectorAll('.mailbox-card')
+    console.log('找到邮箱卡片数:', cards.length)
+    cards.forEach((card, i) => {
+        const addr = card.querySelector('.mb-addr')?.textContent?.trim() || '未知'
+        const style = getComputedStyle(card)
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+            console.warn(`卡片 ${i} (${addr}) 被隐藏了! display=${style.display} visibility=${style.visibility} opacity=${style.opacity}`)
+        }
+        // 强制可见
+        card.style.setProperty('display', 'block', 'important')
+        card.style.setProperty('visibility', 'visible', 'important')
+        card.style.setProperty('opacity', '1', 'important')
+        card.style.setProperty('height', 'auto', 'important')
+        card.style.setProperty('max-height', 'none', 'important')
+        card.style.setProperty('overflow', 'visible', 'important')
+        card.style.setProperty('flex-shrink', '0', 'important')
+    })
+}
+
+// 监听 DOM 变化，防止 JS 后续隐藏
+const observer = new MutationObserver(() => {
+    forceMailboxVisible()
+})
+
+// 初始执行 + DOM 加载后执行 + 延迟执行
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        forceMailboxVisible()
+        observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] })
+    })
+} else {
+    forceMailboxVisible()
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] })
+}
+setTimeout(forceMailboxVisible, 500)
+setTimeout(forceMailboxVisible, 1000)
+setTimeout(forceMailboxVisible, 2000)
+setTimeout(forceMailboxVisible, 3000)
+
+// ==================== 修复 Bootstrap 布局 ====================
 const fixStyle = document.createElement('style')
 fixStyle.textContent = `
-/* 修复 Bootstrap col-md-* 在 iPhone 上不生效的问题 */
-/* 强制邮箱卡片的栅格列在小屏上保持桌面布局 */
+.mailbox-card {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    flex-shrink: 0 !important;
+}
 .mailbox-card .row {
     display: flex !important;
     flex-wrap: nowrap !important;
     align-items: center !important;
 }
-.mailbox-card .col-md-6,
-.mailbox-card .col-md-3,
-.mailbox-card .col-md-2,
-.mailbox-card .col-md-1,
-.mailbox-card .col-md-4 {
-    flex: 0 0 auto !important;
-    width: auto !important;
-    max-width: none !important;
-}
-/* 邮箱地址列占主要空间 */
 .mailbox-card .col-md-6 {
     flex: 1 1 auto !important;
     min-width: 0 !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
 }
-/* 操作按钮列不收缩 */
-.mailbox-card .col-md-3,
-.mailbox-card .col-md-2 {
+.mailbox-card .col-md-3 {
     flex: 0 0 auto !important;
 }
-/* 邮箱卡片本身不收缩，防止被挤掉 */
-.mailbox-card {
-    flex-shrink: 0 !important;
-    min-height: 0 !important;
+#mailboxesContainer {
     overflow: visible !important;
+    max-height: none !important;
 }
 `
 document.head.appendChild(fixStyle)
@@ -107,7 +136,6 @@ let isPulling = false
 let isRefreshing = false
 const refreshThreshold = 80
 
-// 使用 capture 阶段 + non-passive 确保 preventDefault 生效
 document.addEventListener('touchstart', (e) => {
     if (isRefreshing) return
     if (window.scrollY !== 0) return
