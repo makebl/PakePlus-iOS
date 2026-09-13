@@ -36,9 +36,6 @@ window.open = function (url, target, features) {
 document.addEventListener('click', hookClick, { capture: true })
 
 // ==================== 修复 WKWebView viewport 覆盖问题 ====================
-// WebView.swift 会注入一个带 user-scalable=no 的 viewport meta
-// 这会覆盖页面自己的 viewport，导致 flex 布局计算错误，部分元素不显示
-// 这里移除注入的 viewport，恢复页面原生设置
 const removeInjectedViewport = () => {
     const metas = document.querySelectorAll('meta[name="viewport"]')
     metas.forEach((m) => {
@@ -49,25 +46,55 @@ const removeInjectedViewport = () => {
     })
 }
 
-// DOMContentLoaded 时清理
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', removeInjectedViewport)
 } else {
     removeInjectedViewport()
 }
-// setTimeout 兜底（防止 WebView 在 DOMContentLoaded 之后才注入）
 setTimeout(removeInjectedViewport, 100)
 setTimeout(removeInjectedViewport, 500)
 setTimeout(removeInjectedViewport, 1000)
 
-// ==================== 修复 WKWebView flex 布局问题 ====================
-// 只针对邮箱列表项，不影响全局滚动
+// ==================== 修复 Bootstrap 邮箱列表在 iOS 上少显示问题 ====================
+// 原因：邮箱卡片用了 col-md-6/col-md-3，md 断点是 768px，iPhone 宽度 375-414px 不触发
+// 导致卡片布局异常，3 个邮箱只显示 2 个
+// 修复：强制邮箱卡片内的栅格列在小屏上也按桌面布局显示
 const fixStyle = document.createElement('style')
 fixStyle.textContent = `
-/* 只修复 flex 列表项收缩，不影响 body/html 滚动 */
-li, [class*="mail-item"], [class*="card-item"], [class*="list-item"] {
-    -webkit-flex-shrink: 0 !important;
+/* 修复 Bootstrap col-md-* 在 iPhone 上不生效的问题 */
+/* 强制邮箱卡片的栅格列在小屏上保持桌面布局 */
+.mailbox-card .row {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+}
+.mailbox-card .col-md-6,
+.mailbox-card .col-md-3,
+.mailbox-card .col-md-2,
+.mailbox-card .col-md-1,
+.mailbox-card .col-md-4 {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    max-width: none !important;
+}
+/* 邮箱地址列占主要空间 */
+.mailbox-card .col-md-6 {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+/* 操作按钮列不收缩 */
+.mailbox-card .col-md-3,
+.mailbox-card .col-md-2 {
+    flex: 0 0 auto !important;
+}
+/* 邮箱卡片本身不收缩，防止被挤掉 */
+.mailbox-card {
     flex-shrink: 0 !important;
+    min-height: 0 !important;
+    overflow: visible !important;
 }
 `
 document.head.appendChild(fixStyle)
