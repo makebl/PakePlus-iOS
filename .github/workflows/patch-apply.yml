@@ -24,28 +24,34 @@ jobs:
 
             - name: Apply Patches
               run: |
-                  echo "📋 应用定制补丁..."
+                  echo "应用定制补丁..."
                   # 复制 patch/custom.js
                   if [ -f patch/custom.js ]; then
                     cp patch/custom.js PakePlus/custom.js
-                    echo "  ✅ custom.js"
+                    echo "  custom.js"
                   fi
                   # 复制 patch/ppconfig.json
                   if [ -f patch/ppconfig.json ]; then
                     cp patch/ppconfig.json scripts/ppconfig.json
-                    echo "  ✅ ppconfig.json"
+                    echo "  ppconfig.json"
                   fi
                   # 复制 patch/ppworker.cjs
                   if [ -f patch/ppworker.cjs ]; then
                     cp patch/ppworker.cjs scripts/ppworker.cjs
-                    echo "  ✅ ppworker.cjs"
+                    echo "  ppworker.cjs"
                   fi
                   # 复制 patch/WebView.swift
                   if [ -f patch/WebView.swift ]; then
                     cp patch/WebView.swift PakePlus/WebView.swift
-                    echo "  ✅ WebView.swift"
+                    echo "  WebView.swift"
                   fi
-                  echo "✅ 所有补丁应用完成"
+                  # 复制 patch/build-all.yml
+                  if [ -f patch/build-all.yml ]; then
+                    mkdir -p .github/workflows
+                    cp patch/build-all.yml .github/workflows/build-all.yml
+                    echo "  build-all.yml"
+                  fi
+                  echo "所有补丁应用完成"
 
             - name: Commit and Push
               run: |
@@ -53,9 +59,9 @@ jobs:
                   git config user.email "github-actions[bot]@users.noreply.github.com"
                   git add -A
                   if git diff --cached --quiet; then
-                    echo "⚠️ 没有变化，跳过提交"
+                    echo "没有变化，跳过提交"
                   else
                     git commit -m "chore: auto-apply custom patches [skip ci]"
                     git push
-                    echo "✅ 补丁已提交"
+                    echo "补丁已提交"
                   fi
