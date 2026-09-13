@@ -67,22 +67,22 @@ struct WebView: UIViewRepresentable {
             webView.customUserAgent = userAgent
         }
 
-        // disable double tap zoom
-        let script = """
-            var meta = document.createElement('meta');
-            meta.name = 'viewport';
-            meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
-            document.head.appendChild(meta);
-        """
-        let scriptInjection = WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: false)
-        webView.configuration.userContentController.addUserScript(scriptInjection)
+        // clear cache if enabled
+        let clearCache = Bundle.main.object(forInfoDictionaryKey: "CLEARCACHE") as? Bool ?? false
+        if clearCache {
+            URLCache.shared.removeAllCachedResponses()
+            URLCache.shared.diskCapacity = 0
+            URLCache.shared.memoryCapacity = 0
+            let dateFrom = Date(timeIntervalSince1970: 0)
+            WKWebsiteDataStore.default().removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: dateFrom, completionHandler: {})
+        }
 
-        // load custom script
+        // load custom script (at documentStart, before page renders)
         if let customScript = WebView.loadJSFile(named: "custom") {
             let userScript = WKUserScript(
                 source: customScript,
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
+                forMainFrameOnly: false
             )
             webView.configuration.userContentController.addUserScript(userScript)
         }
@@ -97,8 +97,9 @@ struct WebView: UIViewRepresentable {
                 webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
             }
         } else {
-            // load url
-            webView.load(URLRequest(url: webUrl))
+            // load url (ignore cache if clearCache enabled)
+            let cachePolicy: URLRequest.CachePolicy = clearCache ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy
+            webView.load(URLRequest(url: webUrl, cachePolicy: cachePolicy))
         }
 
         // delegate 设置
@@ -270,7 +271,7 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
 
     // MARK: - WKScriptMessageHandler (blob download bridge)
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+    func userContentController(_ userContentController: WKContentController, didReceive message: WKScriptMessage) {
         guard message.name == "blobDownload" else { return }
         guard let body = message.body as? [String: Any] else { return }
 
@@ -477,7 +478,7 @@ class Coordinator: NSObject, UIScrollViewDelegate, WKNavigationDelegate, WKUIDel
 
     private static func topViewController(base: UIViewController? = UIApplication.shared.connectedScenes
         .compactMap { $0 as? UIWindowScene }
-        .flatMap { $0.windows }
+        .flatMap { $0.windows })
         .first(where: { $0.isKeyWindow })?.rootViewController) -> UIViewController?
     {
         if let nav = base as? UINavigationController {
