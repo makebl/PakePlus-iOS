@@ -35,6 +35,49 @@ window.open = function (url, target, features) {
 
 document.addEventListener('click', hookClick, { capture: true })
 
+// ==================== 修复 WKWebView viewport 覆盖问题 ====================
+// WebView.swift 会注入一个带 user-scalable=no 的 viewport meta
+// 这会覆盖页面自己的 viewport，导致 flex 布局计算错误，部分元素不显示
+// 这里移除注入的 viewport，恢复页面原生设置
+const removeInjectedViewport = () => {
+    const metas = document.querySelectorAll('meta[name="viewport"]')
+    metas.forEach((m) => {
+        if (m.content && m.content.includes('user-scalable=no')) {
+            console.log('remove injected viewport meta:', m.content)
+            m.remove()
+        }
+    })
+}
+
+// DOMContentLoaded 时清理
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', removeInjectedViewport)
+} else {
+    removeInjectedViewport()
+}
+// setTimeout 兜底（防止 WebView 在 DOMContentLoaded 之后才注入）
+setTimeout(removeInjectedViewport, 100)
+setTimeout(removeInjectedViewport, 500)
+setTimeout(removeInjectedViewport, 1000)
+
+// ==================== 修复 WKWebView flex 布局问题 ====================
+// WKWebView 对 flex 容器的行高计算有偏差，可能导致列表项被挤掉
+// 这里注入全局 CSS 修复常见布局问题
+const fixStyle = document.createElement('style')
+fixStyle.textContent = `
+/* 修复 WKWebView flex 布局：避免子元素被截断 */
+* {
+    -webkit-flex-shrink: 0 !important;
+    flex-shrink: 0 !important;
+}
+/* 邮箱列表常见容器修复 */
+[class*="mail"], [class*="list"], [class*="card"], [class*="item"] {
+    min-height: 0 !important;
+    overflow: visible !important;
+}
+`
+document.head.appendChild(fixStyle)
+
 // ==================== 下拉刷新处理 ====================
 
 let startY = 0

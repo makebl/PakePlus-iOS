@@ -107,7 +107,7 @@
             "tabBarItem": []
         },
         "webview": {
-            "userAgent": "",
+            "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36",
             "javaScriptEnabled": true,
             "domStorageEnabled": true,
             "allowFileAccess": true,
@@ -123,7 +123,7 @@
         "name": "自用邮箱",
         "showName": "自用邮箱",
         "version": "0.0.1",
-        "webUrl": "http://langge.cf:8080/dashboard",
+        "webUrl": "https://langge.cf:8080/dashboard",
         "id": "com.makebl.mail",
         "icon": "./app-icon.png",
         "desc": "PakePlus Project by 1024xiaoshen",
