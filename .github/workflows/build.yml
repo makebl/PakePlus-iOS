@@ -59,7 +59,9 @@ jobs:
                   NAME="${{ env.NAME }}"
                   VERSION="${{ env.VERSION }}"
                   ISHTML="${{ env.ISHTML }}"
-                  ${ISHTML} && cp -R ./Scripts/www/* ./Payload/PakePlus.app/
+                  if [ "$ISHTML" = "true" ]; then
+                      cp -R ./scripts/www/* ./Payload/PakePlus.app/
+                  fi
                   zip -r ${NAME}-${VERSION}.ipa Payload
                   mkdir -p export
                   mv ${NAME}-${VERSION}.ipa export/
