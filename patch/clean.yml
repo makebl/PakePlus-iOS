@@ -6,7 +6,7 @@ on:
             confirm:
                 description: '确认清理？输入 yes 继续'
                 required: true
-                default: 'no'
+                default: 'yes'
 
 permissions:
     contents: write
