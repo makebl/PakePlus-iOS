@@ -1,3 +1,34 @@
+// ==================== 禁用双指缩放 ====================
+
+// 注入 viewport meta，禁止用户缩放
+const injectViewport = () => {
+    // 移除已有的 viewport meta
+    const existing = document.querySelector('meta[name="viewport"]')
+    if (existing) {
+        existing.remove()
+    }
+    // 注入新的 viewport meta
+    const meta = document.createElement('meta')
+    meta.name = 'viewport'
+    meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no'
+    if (document.head) {
+        document.head.appendChild(meta)
+    } else if (document.documentElement) {
+        document.documentElement.appendChild(meta)
+    }
+}
+
+// 立即注入一次
+injectViewport()
+
+// DOM ready 后再注入一次（确保覆盖网页自带的 viewport）
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', injectViewport)
+} else {
+    injectViewport()
+}
+
+
 // ==================== 链接跳转处理 ====================
 
 const hookClick = (e) => {
