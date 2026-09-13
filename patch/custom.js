@@ -1,129 +1,71 @@
-// PakePlus-iOS 定制补丁 v1.0
 // ==================== 链接跳转处理 ====================
 
 const hookClick = (e) => {
+    // 防止某些特殊情况下 e.target 不是普通元素
     if (!(e.target instanceof Element)) {
         return
     }
+
     const origin = e.target.closest('a[href]')
+
     if (!origin) {
         return
     }
-    const baseElement = document.querySelector('head base[target="_blank"]')
+
+    // 判断当前链接是否应该打开新窗口
+    const baseElement = document.querySelector(
+        'head base[target="_blank"]'
+    )
+
     const shouldHandle =
         origin.target === '_blank' ||
-        (!origin.target && baseElement)
+        (
+            !origin.target &&
+            baseElement
+        )
+
     if (shouldHandle) {
         e.preventDefault()
+
         console.log('handle origin:', origin)
+
+        // 在当前页面打开
         window.location.href = origin.href
     } else {
         console.log('not handle origin:', origin)
     }
 }
 
+
 // ==================== window.open 处理 ====================
 
+// 保存原始的 window.open，必要时可以恢复
 const originalWindowOpen = window.open
+
 window.open = function (url, target, features) {
     console.log('open:', url, target, features)
+
+    // 防止没有传入有效地址
     if (!url) {
         return null
     }
+
+    // 强制在当前页面跳转
     window.location.href = url
+
     return null
 }
 
-document.addEventListener('click', hookClick, { capture: true })
 
-// ==================== 修复 WKWebView viewport 覆盖问题 ====================
-const removeInjectedViewport = () => {
-    const metas = document.querySelectorAll('meta[name="viewport"]')
-    metas.forEach((m) => {
-        if (m.content && m.content.includes('user-scalable=no')) {
-            console.log('remove injected viewport meta:', m.content)
-            m.remove()
-        }
-    })
-}
+// 使用捕获阶段监听点击事件
+document.addEventListener(
+    'click',
+    hookClick,
+    {
+        capture: true
+    }
+)
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', removeInjectedViewport)
-} else {
-    removeInjectedViewport()
-}
-setTimeout(removeInjectedViewport, 100)
-setTimeout(removeInjectedViewport, 500)
-setTimeout(removeInjectedViewport, 1000)
-
-// ==================== 强制所有邮箱卡片可见 ====================
-const forceMailboxVisible = () => {
-    const cards = document.querySelectorAll('.mailbox-card')
-    console.log('找到邮箱卡片数:', cards.length)
-    cards.forEach((card, i) => {
-        const addr = card.querySelector('.mb-addr')?.textContent?.trim() || '未知'
-        const style = getComputedStyle(card)
-        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-            console.warn(`卡片 ${i} (${addr}) 被隐藏了! display=${style.display} visibility=${style.visibility} opacity=${style.opacity}`)
-        }
-        card.style.setProperty('display', 'block', 'important')
-        card.style.setProperty('visibility', 'visible', 'important')
-        card.style.setProperty('opacity', '1', 'important')
-        card.style.setProperty('height', 'auto', 'important')
-        card.style.setProperty('max-height', 'none', 'important')
-        card.style.setProperty('overflow', 'visible', 'important')
-        card.style.setProperty('flex-shrink', '0', 'important')
-    })
-}
-
-const observer = new MutationObserver(() => {
-    forceMailboxVisible()
-})
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        forceMailboxVisible()
-        observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] })
-    })
-} else {
-    forceMailboxVisible()
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] })
-}
-setTimeout(forceMailboxVisible, 500)
-setTimeout(forceMailboxVisible, 1000)
-setTimeout(forceMailboxVisible, 2000)
-setTimeout(forceMailboxVisible, 3000)
-
-// ==================== 修复 Bootstrap 布局 ====================
-const fixStyle = document.createElement('style')
-fixStyle.textContent = `
-.mailbox-card {
-    display: block !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
-    flex-shrink: 0 !important;
-}
-.mailbox-card .row {
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    align-items: center !important;
-}
-.mailbox-card .col-md-6 {
-    flex: 1 1 auto !important;
-    min-width: 0 !important;
-}
-.mailbox-card .col-md-3 {
-    flex: 0 0 auto !important;
-}
-#mailboxesContainer {
-    overflow: visible !important;
-    max-height: none !important;
-}
-`
-document.head.appendChild(fixStyle)
 
 // ==================== 下拉刷新处理 ====================
 
@@ -131,50 +73,110 @@ let startY = 0
 let distance = 0
 let isPulling = false
 let isRefreshing = false
+
+// 下拉超过 80 像素时触发刷新
 const refreshThreshold = 80
 
-document.addEventListener('touchstart', (e) => {
-    if (isRefreshing) return
-    if (window.scrollY !== 0) return
-    if (!e.touches || !e.touches.length) return
-    startY = e.touches[0].clientY
-    distance = 0
-    isPulling = true
-}, { capture: true, passive: false })
+document.addEventListener(
+    'touchstart',
+    (e) => {
+        // 正在刷新时不重复处理
+        if (isRefreshing) {
+            return
+        }
 
-document.addEventListener('touchmove', (e) => {
-    if (!isPulling || isRefreshing) return
-    if (!e.touches || !e.touches.length) return
-    const currentY = e.touches[0].clientY
-    const moveDistance = currentY - startY
-    if (moveDistance <= 0) {
+        // 页面没有滚动到顶部时，不触发下拉刷新
+        if (window.scrollY !== 0) {
+            return
+        }
+
+        if (!e.touches || !e.touches.length) {
+            return
+        }
+
+        startY = e.touches[0].clientY
         distance = 0
-        return
-    }
-    distance = Math.min(moveDistance, 120)
-    e.preventDefault()
-    e.stopPropagation()
-    if (distance >= refreshThreshold) {
-        console.log('释放手指即可刷新')
-    } else {
-        console.log('继续下拉')
-    }
-}, { capture: true, passive: false })
+        isPulling = true
 
-document.addEventListener('touchend', () => {
-    if (!isPulling || isRefreshing) return
-    isPulling = false
-    if (distance >= refreshThreshold) {
-        isRefreshing = true
-        console.log('正在刷新页面...')
-        window.location.reload()
-    } else {
-        console.log('下拉距离不足，不刷新')
+        console.log('开始检测下拉刷新')
+    },
+    {
+        passive: true
     }
-    distance = 0
-}, { capture: true, passive: false })
+)
 
-document.addEventListener('touchcancel', () => {
-    isPulling = false
-    distance = 0
-}, { capture: true, passive: false })
+document.addEventListener(
+    'touchmove',
+    (e) => {
+        if (!isPulling || isRefreshing) {
+            return
+        }
+
+        if (!e.touches || !e.touches.length) {
+            return
+        }
+
+        const currentY = e.touches[0].clientY
+        const moveDistance = currentY - startY
+
+        // 手指向上滑动时，不处理
+        if (moveDistance <= 0) {
+            distance = 0
+            return
+        }
+
+        // 限制最大下拉距离
+        distance = Math.min(moveDistance, 120)
+
+        // 阻止页面正常滚动
+        e.preventDefault()
+
+        if (distance >= refreshThreshold) {
+            console.log('释放手指即可刷新')
+        } else {
+            console.log('继续下拉')
+        }
+    },
+    {
+        // 必须设置为 false，否则 preventDefault() 无效
+        passive: false
+    }
+)
+
+document.addEventListener(
+    'touchend',
+    () => {
+        if (!isPulling || isRefreshing) {
+            return
+        }
+
+        isPulling = false
+
+        if (distance >= refreshThreshold) {
+            isRefreshing = true
+
+            console.log('正在刷新页面...')
+
+            // 重新加载当前页面
+            window.location.reload()
+        } else {
+            console.log('下拉距离不足，不刷新')
+        }
+
+        distance = 0
+    },
+    {
+        passive: true
+    }
+)
+
+document.addEventListener(
+    'touchcancel',
+    () => {
+        isPulling = false
+        distance = 0
+    },
+    {
+        passive: true
+    }
+)
