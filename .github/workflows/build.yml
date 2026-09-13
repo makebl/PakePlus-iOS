@@ -52,25 +52,35 @@ jobs:
 
             - name: Package IPA
               run: |
+                  set +e
                   APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -type d -name "PakePlus.app" | grep Release-iphoneos | head -n 1)
-                  echo "APP_PATH is $APP_PATH"
+                  echo "APP_PATH is [$APP_PATH]"
+                  if [ -z "$APP_PATH" ]; then
+                      echo "ERROR: PakePlus.app not found in DerivedData"
+                      find ~/Library/Developer/Xcode/DerivedData -type d -name "*.app" 2>/dev/null | head -20
+                      exit 1
+                  fi
                   mkdir -p Payload
                   cp -R "$APP_PATH" Payload/
                   NAME="${{ env.NAME }}"
                   VERSION="${{ env.VERSION }}"
                   ISHTML="${{ env.ISHTML }}"
+                  echo "NAME=$NAME VERSION=$VERSION ISHTML=$ISHTML"
                   if [ "$ISHTML" = "true" ]; then
                       cp -R ./scripts/www/* ./Payload/PakePlus.app/
                   fi
-                  zip -r ${NAME}-${VERSION}.ipa Payload
+                  # 用英文文件名避免中文路径问题，发布时再显示中文名
+                  IPA_FILE="PakePlus-${VERSION}.ipa"
+                  zip -r "$IPA_FILE" Payload
                   mkdir -p export
-                  mv ${NAME}-${VERSION}.ipa export/
+                  mv "$IPA_FILE" export/
+                  ls -la export/
 
             - name: Publish IPA
               uses: softprops/action-gh-release@v1
               with:
-                  files: export/${{ env.NAME }}-${{ env.VERSION }}.ipa
-                  tag_name: '${{ env.NAME }}'
+                  files: export/PakePlus-${{ env.VERSION }}.ipa
+                  tag_name: 'v${{ env.VERSION }}'
                   name: '${{ env.NAME }} v${{ env.VERSION }}'
                   body: '${{ env.PUBBODY }}'
                   draft: false
