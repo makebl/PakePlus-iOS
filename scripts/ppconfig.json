@@ -1,7 +1,7 @@
 {
-    "name": "",
+    "name": "自用邮箱",
     "url": "",
-    "showName": "",
+    "showName": "自用邮箱",
     "appid": "",
     "icon": "",
     "iconRound": true,
@@ -114,19 +114,23 @@
             "loadWithOverviewMode": true,
             "setSupportZoom": true,
             "clearCache": true
-        }
+        },
+        "launchImage": true,
+        "direction": "default",
+        "startMethod": "none"
     },
     "ios": {
-        "name": "PakePlus",
-        "showName": "PakePlus",
+        "name": "自用邮箱",
+        "showName": "自用邮箱",
         "version": "0.0.1",
-        "webUrl": "https://juejin.cn/",
-        "id": "com.oaikes.app",
+        "webUrl": "http://langge.cf:8080/dashboard",
+        "id": "com.makebl.mail",
         "icon": "./app-icon.png",
         "desc": "PakePlus Project by 1024xiaoshen",
         "pubBody": "PakePlus ios build body",
         "isHtml": false,
-        "debug": false
+        "debug": false,
+        "safeArea": "fullscreen"
     },
     "android": {
         "name": "PakePlus",
