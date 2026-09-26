@@ -316,6 +316,8 @@ jobs:
 
             - name: Set up Android SDK
               run: |
+                  export ANDROID_HOME=/usr/local/lib/android/sdk
+                  export PATH=\/cmdline-tools/latest/bin:\/platform-tools:\
                   yes | sdkmanager --licenses
                   sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
