@@ -269,17 +269,6 @@ jobs:
                   if [ -n "$APP_ICON" ]; then
                     echo "下载应用图标: $APP_ICON"
                     wget -q -O app-icon.raw "$APP_ICON" || echo "下载失败，使用默认图标"
-                    if [ -f app-icon.raw ]; then
-                      # 转换为真正的 PNG 格式（兼容 ICO/WebP/SVG 等源格式）
-                      convert app-icon.raw -resize 512x512 app-icon.png 2>/dev/null
-                      if [ -f app-icon.png ]; then
-                        echo "图标转换成功"
-                        file app-icon.png
-                      else
-                        echo "图标转换失败，使用默认图标"
-                        rm -f app-icon.raw
-                      fi
-                    fi
                   else
                     echo "未提供图标 URL，使用默认"
                   fi
@@ -359,6 +348,22 @@ jobs:
 
             - name: Install Dependencies
               run: pnpm install --no-frozen-lockfile
+
+            - name: Convert App Icon to PNG
+              run: |
+                  if [ -f app-icon.raw ]; then
+                    convert app-icon.raw -resize 512x512 app-icon.png 2>/dev/null
+                    if [ -f app-icon.png ]; then
+                      echo "图标转换成功"
+                      file app-icon.png
+                      rm -f app-icon.raw
+                    else
+                      echo "图标转换失败，使用默认图标"
+                      rm -f app-icon.raw
+                    fi
+                  else
+                    echo "无自定义图标，使用默认"
+                  fi
 
             - name: Run ppworker
               run: pnpm pp:worker
