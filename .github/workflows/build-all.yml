@@ -156,9 +156,10 @@ jobs:
                   echo "Original icon dimensions: $ICON_SIZE"
                   WIDTH=$(sips -g pixelWidth app-icon.png | grep pixelWidth | awk '{print $2}')
                   HEIGHT=$(sips -g pixelHeight app-icon.png | grep pixelHeight | awk '{print $2}')
-                  if [ "$WIDTH" != "$HEIGHT" ]; then
-                    echo "Icon is not square ($WIDTH x $HEIGHT), cropping to 1024x1024..."
-                    sips -c 1024 1024 app-icon.png --out app-icon.png 2>/dev/null || true
+                  if [ "$WIDTH" -ne 1024 ] || [ "$HEIGHT" -ne 1024 ]; then
+                    echo "Icon size is ${WIDTH}x${HEIGHT}, resizing to 1024x1024..."
+                    if [ "$WIDTH" != "$HEIGHT" ]; then sips -c 1024 1024 app-icon.png --out app-icon.png 2>/dev/null || true; fi
+                    sips -z 1024 1024 app-icon.png --out app-icon.png 2>/dev/null || true
                     sips -z 1024 1024 app-icon.png --out app-icon.png 2>/dev/null || true
                   fi
                   echo "Final icon size:"
