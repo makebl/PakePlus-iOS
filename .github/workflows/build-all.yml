@@ -172,7 +172,6 @@ jobs:
                       rm -f app-icon.png
                     fi
                   fi
-                  fi
                   echo "Final icon size:"
                   sips -g pixelWidth -g pixelHeight app-icon.png
                   echo "Generating AppIcon..."
