@@ -352,7 +352,7 @@ jobs:
             - name: Convert App Icon to PNG
               run: |
                   if [ -f app-icon.raw ]; then
-                    convert app-icon.raw -resize 512x512 app-icon.png 2>/dev/null
+                    convert app-icon.raw -resize 512x512 app-icon.png 2>&1 || true
                     if [ -f app-icon.png ]; then
                       echo "图标转换成功"
                       file app-icon.png
