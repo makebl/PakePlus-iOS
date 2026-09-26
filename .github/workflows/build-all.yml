@@ -356,6 +356,10 @@ jobs:
             - name: Grant Execute Permission
               run: chmod +x ./gradlew
 
+            - name: Generate Debug Keystore
+              run: |
+                  keytool -genkeypair -v -keystore pakeplus.keystore -alias pakeplus -keyalg RSA -keysize 2048 -validity 10000 -storepass pakeplus -keypass pakeplus -dname "CN=PakePlus, OU=PakePlus, O=PakePlus, L=Unknown, ST=Unknown, C=US"
+
             - name: Build APK
               run: ./gradlew assembleDebug --no-daemon
 
