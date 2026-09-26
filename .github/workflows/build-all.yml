@@ -158,9 +158,20 @@ jobs:
                   HEIGHT=$(sips -g pixelHeight app-icon.png | grep pixelHeight | awk '{print $2}')
                   if [ "$WIDTH" -ne 1024 ] || [ "$HEIGHT" -ne 1024 ]; then
                     echo "Icon size is ${WIDTH}x${HEIGHT}, resizing to 1024x1024..."
-                    if [ "$WIDTH" != "$HEIGHT" ]; then sips -c 1024 1024 app-icon.png --out app-icon.png 2>/dev/null || true; fi
-                    sips -z 1024 1024 app-icon.png --out app-icon.png 2>/dev/null || true
-                    sips -z 1024 1024 app-icon.png --out app-icon.png 2>/dev/null || true
+                    # 先转换为 PNG 格式（防止 ico/webp 等格式导致 sips 缩放失败）
+                    sips -s format png app-icon.png --out app-icon.tmp.png 2>/dev/null
+                    if [ -f app-icon.tmp.png ]; then
+                      # 非正方形先裁剪再缩放
+                      if [ "$WIDTH" != "$HEIGHT" ]; then
+                        sips -c 1024 1024 app-icon.tmp.png --out app-icon.tmp.png 2>/dev/null
+                      fi
+                      sips -z 1024 1024 app-icon.tmp.png --out app-icon.tmp.png 2>/dev/null
+                      mv app-icon.tmp.png app-icon.png
+                    else
+                      echo "Warning: cannot resize icon, will use default"
+                      rm -f app-icon.png
+                    fi
+                  fi
                   fi
                   echo "Final icon size:"
                   sips -g pixelWidth -g pixelHeight app-icon.png
