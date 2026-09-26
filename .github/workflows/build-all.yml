@@ -268,11 +268,21 @@ jobs:
               run: |
                   if [ -n "$APP_ICON" ]; then
                     echo "下载应用图标: $APP_ICON"
-                    wget -q -O app-icon.png "$APP_ICON" || echo "下载失败，使用默认图标"
+                    wget -q -O app-icon.raw "$APP_ICON" || echo "下载失败，使用默认图标"
+                    if [ -f app-icon.raw ]; then
+                      # 转换为真正的 PNG 格式（兼容 ICO/WebP/SVG 等源格式）
+                      convert app-icon.raw -resize 512x512 app-icon.png 2>/dev/null
+                      if [ -f app-icon.png ]; then
+                        echo "图标转换成功"
+                        file app-icon.png
+                      else
+                        echo "图标转换失败，使用默认图标"
+                        rm -f app-icon.raw
+                      fi
+                    fi
                   else
                     echo "未提供图标 URL，使用默认"
                   fi
-                  ls -la app-icon.png
 
             - name: Patch ppconfig.json
               shell: bash
@@ -356,9 +366,22 @@ jobs:
             - name: Grant Execute Permission
               run: chmod +x ./gradlew
 
-            - name: Generate Debug Keystore
+            - name: Patch Build Gradle for Debug Signing
               run: |
-                  keytool -genkeypair -v -keystore pakeplus.keystore -alias pakeplus -keyalg RSA -keysize 2048 -validity 10000 -storepass pakeplus -keypass pakeplus -dname "CN=PakePlus, OU=PakePlus, O=PakePlus, L=Unknown, ST=Unknown, C=US"
+                  # 让 debug build 使用默认 Android debug keystore，避免 release 签名配置导致构建失败
+                  if [ -f app/build.gradle ]; then
+                    # 注释掉 release signingConfig 的引用，使用默认 debug 签名
+                    sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' app/build.gradle
+                    echo "已修改 build.gradle 使用 debug 签名"
+                  elif [ -f app/build.gradle.kts ]; then
+                    sed -i 's/signingConfig = signingConfigs.getByName("release")/signingConfig = signingConfigs.getByName("debug")/g' app/build.gradle.kts
+                    echo "已修改 build.gradle.kts 使用 debug 签名"
+                  fi
+                  # 生成默认 debug keystore（如果不存在）
+                  mkdir -p ~/.android
+                  if [ ! -f ~/.android/debug.keystore ]; then
+                    keytool -genkeypair -v -keystore ~/.android/debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Android Debug,O=Android,C=US"
+                  fi
 
             - name: Build APK
               run: ./gradlew assembleDebug --no-daemon
