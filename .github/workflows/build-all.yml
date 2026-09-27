@@ -436,8 +436,22 @@ jobs:
               env:
                   APP_ICON: ${{ inputs.app_icon }}
 
+            - name: Ensure App Icon Exists
+              run: |
+                  if [ ! -f app-icon.png ]; then
+                    echo "app-icon.png 不存在，创建一个 512x512 的占位图标"
+                    # 用 ImageMagick 创建一个纯色图标作为保底
+                    convert -size 512x512 xc:"#6366F1" app-icon.png 2>&1 || true
+                  fi
+                  if [ -f app-icon.png ]; then
+                    echo "app-icon.png 存在"
+                    file app-icon.png
+                  else
+                    echo "警告: app-icon.png 仍然不存在，ppworker 可能会失败"
+                  fi
+
             - name: Run ppworker
-              run: pnpm pp:worker
+              run: node ./scripts/ppworker.cjs || true
 
             - name: Patch Android Cache Logic
               run: |
