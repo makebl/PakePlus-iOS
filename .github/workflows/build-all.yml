@@ -454,7 +454,7 @@ jobs:
                   MAIN_FILE="app/src/main/java/com/app/pakeplus/MainActivity.kt"
                   if [ -f "$MAIN_FILE" ]; then
                     # 替换 webView.clearCache(true) 为只清 HTTP 缓存但保留 Cookie 的实现
-                    sed -i 's|webView.clearCache(true)|// 只清 HTTP 缓存，保留 Cookie/localStorage\n            webView.clearCache(false)\n            android.webkit.WebStorage.getInstance().deleteAllData()\n            try {\n                val cm = android.webkit.CookieManager.getInstance()\n                cm.flush()\n            } catch (e: Exception) {\n                e.printStackTrace()\n            }|' ""
+                    sed -i 's|webView.clearCache(true)|// 只清 HTTP 缓存，保留 Cookie/localStorage\n            webView.clearCache(false)\n            android.webkit.WebStorage.getInstance().deleteAllData()\n            try {\n                val cm = android.webkit.CookieManager.getInstance()\n                cm.flush()\n            } catch (e: Exception) {\n                e.printStackTrace()\n            }|' "$MAIN_FILE" || true
                     echo "已修改 MainActivity.kt: clearCache 保留 Cookie"
                   else
                     echo "未找到 MainActivity.kt，跳过"
