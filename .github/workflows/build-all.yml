@@ -98,6 +98,7 @@ jobs:
                     c.ios.webUrl = process.env.APP_URL;
                     c.ios.id = process.env.BUNDLE_ID;
                     c.ios.version = process.env.VERSION;
+                    c.ios.clearCache = process.env.CLEAR_CACHE === 'true';
                     fs.writeFileSync(p, JSON.stringify(c, null, 4));
                     console.log('Patched iOS config:');
                     console.log(JSON.stringify(c.ios, null, 2));
@@ -280,6 +281,7 @@ jobs:
                   APP_URL: ${{ inputs.url }}
                   BUNDLE_ID: ${{ inputs.bundle_id }}
                   VERSION: ${{ env.VERSION }}
+                  CLEAR_CACHE: ${{ inputs.clear_cache }}
               run: |
                   node -e "
                     const fs = require('fs');
@@ -290,6 +292,7 @@ jobs:
                     c.android.webUrl = process.env.APP_URL;
                     c.android.id = process.env.BUNDLE_ID;
                     c.android.version = process.env.VERSION;
+                    c.android.clearCache = process.env.CLEAR_CACHE === 'true';
                     fs.writeFileSync(p, JSON.stringify(c, null, 4));
                     console.log('Patched Android config:');
                     console.log(JSON.stringify(c.android, null, 2));
