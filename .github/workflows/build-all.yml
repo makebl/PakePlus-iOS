@@ -69,207 +69,14 @@ jobs:
               run: |
                   if [ -n "$APP_ICON" ]; then
                     echo "下载应用图标: $APP_ICON"
-                    wget -q -O app-icon.png "$APP_ICON" || echo "下载失败，使用默认图标"
-                  else
-                    echo "未提供图标 URL，使用默认 app-icon.png"
-                  fi
-                  ls -la app-icon.png
-
-            - name: Patch ppconfig.json
-              shell: bash
-              env:
-                  APP_NAME: ${{ inputs.app_name }}
-                  APP_URL: ${{ inputs.url }}
-                  BUNDLE_ID: ${{ inputs.bundle_id }}
-                  VERSION: ${{ env.VERSION }}
-              run: |
-                  echo "=== 验证 env ==="
-                  echo "APP_NAME: $APP_NAME"
-                  echo "APP_URL: $APP_URL"
-                  echo "BUNDLE_ID: $BUNDLE_ID"
-                  echo "VERSION: $VERSION"
-                  echo "=== 写入 ppconfig.json ==="
-                  node -e "
-                    const fs = require('fs');
-                    const p = 'scripts/ppconfig.json';
-                    const c = JSON.parse(fs.readFileSync(p, 'utf8'));
-                    c.ios.name = process.env.APP_NAME;
-                    c.ios.showName = process.env.APP_NAME;
-                    c.ios.webUrl = process.env.APP_URL;
-                    c.ios.id = process.env.BUNDLE_ID;
-                    c.ios.version = process.env.VERSION;
-                    c.ios.clearCache = process.env.CLEAR_CACHE === 'true';
-                    fs.writeFileSync(p, JSON.stringify(c, null, 4));
-                    console.log('Patched iOS config:');
-                    console.log(JSON.stringify(c.ios, null, 2));
-                  "
-            - name: Inject Custom JS
-              shell: bash
-              env:
-                  CUSTOM_JS: ${{ inputs.custom_js }}
-              run: |
-                  if [ -n "$CUSTOM_JS" ]; then
-                    echo "使用用户自定义脚本"
-                    printf '%s' "$CUSTOM_JS" > PakePlus/custom.js
-                    echo "custom.js 已覆盖（长度: $(wc -c < PakePlus/custom.js) 字节）"
-                  else
-                    echo "使用默认脚本（禁止跳转+下拉刷新）"
-                  fi
-
-                  echo "=== 验证 ppconfig.json ==="
-                  cat scripts/ppconfig.json | grep -E 'name|webUrl|id|version'
-
-            - name: Setup Xcode
-              uses: maxim-lobanov/setup-xcode@v1
-              with:
-                  xcode-version: latest-stable
-
-            - uses: pnpm/action-setup@v4
-              with:
-                  version: 10
-                  run_install: false
-
-            - name: Setup Node
-              uses: actions/setup-node@v5
-              with:
-                  node-version: 22.14.0
-
-            - name: Install Dependencies
-              run: pnpm install --no-frozen-lockfile
-
-            - name: Run ppworker
-              run: |
-                  pnpm pp:worker
-                  echo "=== 验证 Info.plist 内容 ==="
-                  grep -A1 'CFBundleDisplayName' PakePlus/Info.plist || echo "CFBundleDisplayName not found"
-                  grep -A1 'WEBURL' PakePlus/Info.plist || echo "WEBURL not found"
-
-            - name: Generate AppIcon
-              run: |
-                  echo "Installing appicon tool..."
-                  brew install Nonchalant/appicon/appicon
-                  echo "Checking icon file..."
-                  if [ ! -f app-icon.png ]; then
-                    echo "app-icon.png not found, using default"
-                    exit 0
-                  fi
-                  ICON_SIZE=$(sips -g pixelWidth -g pixelHeight app-icon.png 2>/dev/null | grep pixel | awk '{print $2}')
-                  echo "Original icon dimensions: $ICON_SIZE"
-                  WIDTH=$(sips -g pixelWidth app-icon.png | grep pixelWidth | awk '{print $2}')
-                  HEIGHT=$(sips -g pixelHeight app-icon.png | grep pixelHeight | awk '{print $2}')
-                  if [ "$WIDTH" -ne 1024 ] || [ "$HEIGHT" -ne 1024 ]; then
-                    echo "Icon size is ${WIDTH}x${HEIGHT}, resizing to 1024x1024..."
-                    # 先转换为 PNG 格式（防止 ico/webp 等格式导致 sips 缩放失败）
-                    sips -s format png app-icon.png --out app-icon.tmp.png 2>/dev/null
-                    if [ -f app-icon.tmp.png ]; then
-                      # 非正方形先裁剪再缩放
-                      if [ "$WIDTH" != "$HEIGHT" ]; then
-                        sips -c 1024 1024 app-icon.tmp.png --out app-icon.tmp.png 2>/dev/null
-                      fi
-                      sips -z 1024 1024 app-icon.tmp.png --out app-icon.tmp.png 2>/dev/null
-                      mv app-icon.tmp.png app-icon.png
+                    curl -sL -o icon-src "$APP_ICON" 2>/dev/null || echo "下载失败"
+                    if [ -f icon-src ]; then
+                      echo "下载成功"
+                      file -b icon-src
+                      ls -la icon-src
                     else
-                      echo "Warning: cannot resize icon, will use default"
-                      rm -f app-icon.png
+                      echo "下载失败，将使用占位图标"
                     fi
-                  fi
-                  echo "Final icon size:"
-                  sips -g pixelWidth -g pixelHeight app-icon.png
-                  echo "Generating AppIcon..."
-                  appicon app-icon.png --output-path ./PakePlus/Assets.xcassets/AppIcon.appiconset
-                  echo "AppIcon generated successfully"
-                  ls -la ./PakePlus/Assets.xcassets/AppIcon.appiconset/ | head -10
-
-            - name: Build IPA
-              shell: bash
-              env:
-                  VERSION: ${{ env.VERSION }}
-                  BUNDLE_ID: ${{ inputs.bundle_id }}
-              run: |
-                  set +e
-                  xcodebuild -project PakePlus.xcodeproj -scheme PakePlus -configuration Release -sdk iphoneos CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
-                  BUILD_RESULT=$?
-                  echo "xcodebuild exit code: $BUILD_RESULT"
-                  if [ $BUILD_RESULT -ne 0 ]; then
-                    echo "Build failed"
-                    exit 1
-                  fi
-                  APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -type d -name "PakePlus.app" | grep Release-iphoneos | head -n 1)
-                  echo "APP_PATH is [$APP_PATH]"
-                  if [ -z "$APP_PATH" ]; then
-                      echo "ERROR: PakePlus.app not found in DerivedData"
-                      find ~/Library/Developer/Xcode/DerivedData -type d -name "*.app" 2>/dev/null | head -20
-                      exit 1
-                  fi
-                  echo "=== 验证编译后的 Info.plist ==="
-                  plutil -p "$APP_PATH/Info.plist" | grep -E 'CFBundleDisplayName|WEBURL'
-                  mkdir -p Payload
-                  cp -R "$APP_PATH" Payload/
-                  if [ "${ISHTML:-false}" = "true" ]; then
-                      cp -R ./scripts/www/* ./Payload/PakePlus.app/
-                  fi
-                  IPA_NAME="${BUNDLE_ID}-ios-${VERSION}.ipa"
-                  echo "打包文件名: $IPA_NAME"
-                  zip -r "$IPA_NAME" Payload
-                  ls -la "$IPA_NAME"
-                  echo "IPA_NAME=$IPA_NAME" >> $GITHUB_ENV
-
-            - name: Create Release
-              uses: softprops/action-gh-release@v1
-              with:
-                  files: ${{ env.IPA_NAME }}
-                  tag_name: ios-v${{ env.VERSION }}
-                  name: ${{ inputs.app_name }} iOS v${{ env.VERSION }}
-                  body: |
-                      网址: ${{ inputs.url }}
-                      名称: ${{ inputs.app_name }}
-                      Bundle ID: ${{ inputs.bundle_id }}
-                      版本: ${{ env.VERSION }}
-                      平台: iOS
-                  draft: false
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    android:
-        name: Android APK
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout Android Source
-              uses: actions/checkout@v5
-              with:
-                  repository: Sjj1024/PakePlus-Android
-
-            - name: Get Version
-              shell: bash
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  INPUT_VERSION: ${{ inputs.version }}
-              run: |
-                  if [ -n "$INPUT_VERSION" ]; then
-                    VERSION="$INPUT_VERSION"
-                  else
-                    LATEST=$(gh release list --repo ${{ github.repository }} --limit 100 --json tagName --jq '.[].tagName' 2>/dev/null | grep '^android-v' | sed 's/^android-v//' | sort -V | tail -1 || echo "")
-                    if [ -z "$LATEST" ]; then
-                      VERSION="0.0.1"
-                    else
-                      MAJOR=$(echo "$LATEST" | cut -d. -f1)
-                      MINOR=$(echo "$LATEST" | cut -d. -f2)
-                      PATCH=$(echo "$LATEST" | cut -d. -f3)
-                      PATCH=$((PATCH + 1))
-                      VERSION="${MAJOR}.${MINOR}.${PATCH}"
-                    fi
-                  fi
-                  echo "VERSION=$VERSION" >> $GITHUB_ENV
-                  echo "Version: $VERSION"
-
-            - name: Download App Icon
-              shell: bash
-              env:
-                  APP_ICON: ${{ inputs.app_icon }}
-              run: |
-                  if [ -n "$APP_ICON" ]; then
-                    echo "下载应用图标: $APP_ICON"
-                    wget -q -O icon-src "$APP_ICON" || echo "下载失败，使用默认图标"
                   else
                     echo "未提供图标 URL，使用默认"
                   fi
@@ -293,7 +100,6 @@ jobs:
                     c.android.id = process.env.BUNDLE_ID;
                     c.android.version = process.env.VERSION;
                     c.android.clearCache = process.env.CLEAR_CACHE === 'true';
-                    // 补全 ppworker 需要但 ppconfig.json 中缺失的字段
                     if (!c.android.input) c.android.input = './app-icon.png';
                     if (!c.android.output) c.android.output = './res';
                     if (!c.android.copyTo) c.android.copyTo = './app/src/main/res';
@@ -306,6 +112,7 @@ jobs:
                     console.log('Patched Android config:');
                     console.log(JSON.stringify(c.android, null, 2));
                   "
+
             - name: Inject Custom JS
               shell: bash
               env:
@@ -313,7 +120,6 @@ jobs:
               run: |
                   if [ -n "$CUSTOM_JS" ]; then
                     echo "使用用户自定义脚本"
-                    # Android custom.js 路径（根据 PakePlus-Android 结构）
                     if [ -f app/src/main/assets/custom.js ]; then
                       printf '%s' "$CUSTOM_JS" > app/src/main/assets/custom.js
                       echo "已覆盖 app/src/main/assets/custom.js"
@@ -361,94 +167,86 @@ jobs:
             - name: Install Dependencies
               run: pnpm install --no-frozen-lockfile
 
-            - name: Convert App Icon to PNG
+            - name: Process App Icon
+              shell: bash
               run: |
-                  if [ -f icon-src ]; then
-                    # 先删除默认图标，避免混淆
-                    rm -f app-icon.png
-                    # 尝试用 ImageMagick 转换（指定输入格式，避免格式识别失败）
-                    # 先检测文件真实类型
-                    FILE_TYPE=$(file -b icon-src 2>/dev/null || echo "unknown")
-                    echo "源文件类型: $FILE_TYPE"
-                    # 根据类型选择转换方式
-                    case "$FILE_TYPE" in
-                      *JPEG*|*jpeg*|*JPG*)
-                        convert icon-src -resize 512x512 app-icon.png 2>&1 || true
-                        ;;
-                      *PNG*)
-                        convert icon-src -resize 512x512 app-icon.png 2>&1 || true
-                        ;;
-                      *GIF*)
-                        convert "icon-src[0]" -resize 512x512 app-icon.png 2>&1 || true
-                        ;;
-                      *ICO*|*icon*)
-                        convert "icon-src[0]" -resize 512x512 app-icon.png 2>&1 || true
-                        ;;
-                      *WebP*|*WEBP*)
-                        convert icon-src -resize 512x512 app-icon.png 2>&1 || true
-                        ;;
-                      *SVG*|*XML*)
-                        convert icon-src -resize 512x512 app-icon.png 2>&1 || true
-                        ;;
-                      *)
-                        # 未知格式，尝试用 curl 重新下载并指定为 png
-                        echo "未知格式，尝试通用转换"
-                        convert icon-src -resize 512x512 app-icon.png 2>&1 || true
-                        ;;
-                    esac
-                    # 如果转换失败，尝试用 curl 重新下载
-                    if [ ! -f app-icon.png ]; then
-                      echo "第一次转换失败，尝试用 curl 重新下载"
-                      curl -sL -o app-icon.png "$APP_ICON" 2>/dev/null || true
-                      if [ -f app-icon.png ]; then
-                        # 检查下载的是否是有效图片
-                        FILE_CHECK=$(file -b app-icon.png 2>/dev/null || echo "unknown")
-                        echo "下载文件类型: $FILE_CHECK"
-                        case "$FILE_CHECK" in
-                          *PNG*|*JPEG*|*JPG*|*GIF*|*WebP*)
-                            # 有效图片但可能不是 PNG，转换一下
-                            convert app-icon.png -resize 512x512 app-icon-temp.png 2>&1 && mv app-icon-temp.png app-icon.png || true
-                            ;;
-                          *)
-                            # 不是图片，删除
-                            rm -f app-icon.png
-                            ;;
-                        esac
-                      fi
-                    fi
-                    # 最终检查
-                    if [ -f app-icon.png ]; then
-                      echo "图标转换成功"
-                      file app-icon.png
-                    else
-                      echo "图标转换失败，使用仓库默认图标"
-                      # PakePlus-Android 仓库自带 app-icon.png，确保它存在
-                      if [ -f app-icon.png ]; then
-                        echo "默认图标已存在"
-                      else
-                        echo "警告: app-icon.png 不存在，ppworker 可能会失败"
-                      fi
-                    fi
-                    rm -f icon-src
+                  echo "=== 图标处理开始 ==="
+                  rm -f app-icon.png
+                  echo "安装 sharp (支持 JPEG/PNG/GIF/WebP/SVG/ICO/BMP/TIFF)..."
+                  npm install sharp --no-save 2>&1 | tail -3
+                  cat > /tmp/convert-icon.js << 'SCRIPT'
+                  const fs = require('fs');
+                  async function main() {
+                      const input = 'icon-src';
+                      const output = 'app-icon.png';
+                      let sharp;
+                      try { sharp = require('sharp'); } catch(e) {
+                          console.log('sharp 不可用: ' + e.message);
+                      }
+                      if (!fs.existsSync(input)) {
+                          console.log('无自定义图标，生成占位图标');
+                          await createPlaceholder(sharp, output);
+                          return;
+                      }
+                      const buf = fs.readFileSync(input);
+                      if (buf.length < 100) {
+                          console.log('文件太小（' + buf.length + '字节），可能是错误响应');
+                          await createPlaceholder(sharp, output);
+                          return;
+                      }
+                      if (sharp) {
+                          try {
+                              await sharp(buf)
+                                  .resize(512, 512, { fit: 'cover', position: 'center', background: { r: 99, g: 102, b: 241, alpha: 1 } })
+                                  .png()
+                                  .toFile(output);
+                              const info = await sharp(fs.readFileSync(output)).metadata();
+                              console.log('sharp 转换成功: ' + info.width + 'x' + info.height + ' ' + info.format);
+                              return;
+                          } catch (err) {
+                              console.log('sharp 转换失败: ' + err.message);
+                          }
+                      }
+                      try {
+                          const { execSync } = require('child_process');
+                          execSync('convert "icon-src" -resize 512x512 -background none -gravity center -extent 512x512 app-icon.png 2>&1', { stdio: 'inherit' });
+                          if (fs.existsSync(output) && fs.statSync(output).size > 100) {
+                              console.log('ImageMagick 转换成功');
+                              return;
+                          }
+                      } catch (e) {
+                          console.log('ImageMagick 转换失败');
+                      }
+                      await createPlaceholder(sharp, output);
+                  }
+                  async function createPlaceholder(sharp, output) {
+                      if (sharp) {
+                          const svg = '<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg"><rect width="512" height="512" fill="#6366F1" rx="80"/><text x="256" y="286" font-size="120" font-family="sans-serif" fill="white" text-anchor="middle">App</text></svg>';
+                          await sharp(Buffer.from(svg)).png().toFile(output);
+                      } else {
+                          const { execSync } = require('child_process');
+                          execSync('convert -size 512x512 xc:"#6366F1" app-icon.png 2>&1', { stdio: 'inherit' });
+                      }
+                      console.log('占位图标已生成 (512x512)');
+                  }
+                  main().catch(err => { console.error('图标处理出错:', err.message); process.exit(1); });
+                  SCRIPT
+                  node /tmp/convert-icon.js
+                  if [ -f app-icon.png ] && [ "$(stat -c%s app-icon.png 2>/dev/null || echo 0)" -gt 100 ]; then
+                    echo "=== 图标处理完成 ==="
+                    file app-icon.png
+                    ls -la app-icon.png
                   else
-                    echo "无自定义图标，使用默认"
-                  fi
-              env:
-                  APP_ICON: ${{ inputs.app_icon }}
-
-            - name: Ensure App Icon Exists
-              run: |
-                  if [ ! -f app-icon.png ]; then
-                    echo "app-icon.png 不存在，创建一个 512x512 的占位图标"
-                    # 用 ImageMagick 创建一个纯色图标作为保底
+                    echo "=== 最终兜底 ==="
                     convert -size 512x512 xc:"#6366F1" app-icon.png 2>&1 || true
                   fi
-                  if [ -f app-icon.png ]; then
-                    echo "app-icon.png 存在"
-                    file app-icon.png
-                  else
-                    echo "警告: app-icon.png 仍然不存在，ppworker 可能会失败"
-                  fi
+                  rm -f icon-src
+
+            - name: Patch ppworker for Resilience
+              shell: bash
+              run: |
+                  sed -i 's/generateAdaptiveIcons(input, outPath)/try { generateAdaptiveIcons(input, outPath); } catch (e) { console.log("⚠️ Icon generation failed:", e.message); }/' scripts/ppworker.cjs
+                  echo "已添加 try-catch 保护到 ppworker.cjs"
 
             - name: Run ppworker
               run: node ./scripts/ppworker.cjs || true
