@@ -371,7 +371,8 @@ jobs:
                   echo "=== 图标处理开始 ==="
                   rm -f app-icon.png
                   echo "安装 sharp (支持 JPEG/PNG/GIF/WebP/SVG/ICO/BMP/TIFF)..."
-                  pnpm add sharp 2>&1 | tail -5 && pnpm rebuild sharp 2>&1 | tail -3
+                  npm install --prefix /tmp sharp 2>&1 | tail -3
+                  export NODE_PATH=/tmp/node_modules
                   cat > /tmp/convert-icon.js << 'SCRIPT'
                   const fs = require('fs');
                   async function main() {
