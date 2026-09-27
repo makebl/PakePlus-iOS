@@ -24,13 +24,13 @@ on:
                 required: false
                 default: ''
             custom_js:
-                description: '自定义注入脚本（留空用默认：禁止跳转+下拉刷新）'
-                required: false
-                default: ''
             clear_cache:
                 description: '每次启动清理缓存（保留 Cookie/登录状态）'
                 required: false
                 default: 'true'
+                description: '自定义注入脚本（留空用默认：禁止跳转+下拉刷新）'
+                required: false
+                default: ''
 
 permissions:
     contents: write
@@ -151,40 +151,65 @@ jobs:
 
             - name: Generate AppIcon
               run: |
-                  echo "Installing appicon tool..."
+                  set +e
+                  echo 'Installing appicon tool...'
                   brew install Nonchalant/appicon/appicon
-                  echo "Checking icon file..."
+                  echo 'Checking icon file...'
                   if [ ! -f app-icon.png ]; then
-                    echo "app-icon.png not found, using default"
+                    echo 'app-icon.png not found, using default icon'
                     exit 0
                   fi
-                  ICON_SIZE=$(sips -g pixelWidth -g pixelHeight app-icon.png 2>/dev/null | grep pixel | awk '{print $2}')
-                  echo "Original icon dimensions: $ICON_SIZE"
-                  WIDTH=$(sips -g pixelWidth app-icon.png | grep pixelWidth | awk '{print $2}')
-                  HEIGHT=$(sips -g pixelHeight app-icon.png | grep pixelHeight | awk '{print $2}')
+                  # 检查文件大小是否合理（小于 100 字节认为无效）
+                  FILE_SIZE=$(stat -f%z app-icon.png 2>/dev/null || echo 0)
+                  if [ "$FILE_SIZE" -lt 100 ]; then
+                    echo 'Icon file too small ($FILE_SIZE bytes), using default icon'
+                    exit 0
+                  fi
+                  # 尝试用 sips 读取尺寸，判断是否有效图片
+                  WIDTH=$(sips -g pixelWidth app-icon.png 2>/dev/null | grep pixelWidth | awk '{print $2}')
+                  HEIGHT=$(sips -g pixelHeight app-icon.png 2>/dev/null | grep pixelHeight | awk '{print $2}')
+                  echo 'Original icon dimensions: ${WIDTH}x${HEIGHT}'
+                  # 如果 sips 读不出尺寸，尝试用 sips 转 PNG 格式
+                  if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ] || [ "$WIDTH" = '<nil>' ]; then
+                    echo 'sips cannot read icon, trying format conversion...'
+                    sips -s format png app-icon.png --out app-icon-converted.png 2>/dev/null
+                    if [ -f app-icon-converted.png ]; then
+                      mv app-icon-converted.png app-icon.png
+                      WIDTH=$(sips -g pixelWidth app-icon.png 2>/dev/null | grep pixelWidth | awk '{print $2}')
+                      HEIGHT=$(sips -g pixelHeight app-icon.png 2>/dev/null | grep pixelHeight | awk '{print $2}')
+                      echo 'After conversion: ${WIDTH}x${HEIGHT}'
+                    fi
+                  fi
+                  # 如果还是无效，直接用默认图标
+                  if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ] || [ "$WIDTH" = '<nil>' ]; then
+                    echo 'Cannot parse icon file, using default icon'
+                    exit 0
+                  fi
+                  # 缩放到 1024x1024
                   if [ "$WIDTH" -ne 1024 ] || [ "$HEIGHT" -ne 1024 ]; then
-                    echo "Icon size is ${WIDTH}x${HEIGHT}, resizing to 1024x1024..."
-                    # 先转换为 PNG 格式（防止 ico/webp 等格式导致 sips 缩放失败）
+                    echo 'Icon size is ${WIDTH}x${HEIGHT}, resizing to 1024x1024...'
                     sips -s format png app-icon.png --out app-icon.tmp.png 2>/dev/null
                     if [ -f app-icon.tmp.png ]; then
-                      # 非正方形先裁剪再缩放
                       if [ "$WIDTH" != "$HEIGHT" ]; then
                         sips -c 1024 1024 app-icon.tmp.png --out app-icon.tmp.png 2>/dev/null
                       fi
                       sips -z 1024 1024 app-icon.tmp.png --out app-icon.tmp.png 2>/dev/null
                       mv app-icon.tmp.png app-icon.png
                     else
-                      echo "Warning: cannot resize icon, will use default"
-                      rm -f app-icon.png
+                      echo 'Warning: cannot resize icon, using default'
+                      exit 0
                     fi
                   fi
-                  echo "Final icon size:"
+                  echo 'Final icon size:'
                   sips -g pixelWidth -g pixelHeight app-icon.png
-                  echo "Generating AppIcon..."
+                  echo 'Generating AppIcon...'
                   appicon app-icon.png --output-path ./PakePlus/Assets.xcassets/AppIcon.appiconset
-                  echo "AppIcon generated successfully"
+                  if [ $? -ne 0 ]; then
+                    echo 'appicon tool failed, using default icon'
+                    exit 0
+                  fi
+                  echo 'AppIcon generated successfully'
                   ls -la ./PakePlus/Assets.xcassets/AppIcon.appiconset/ | head -10
-
             - name: Build IPA
               shell: bash
               env:
