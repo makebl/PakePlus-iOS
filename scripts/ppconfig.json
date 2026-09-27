@@ -14,7 +14,7 @@
         "screenOn": false,
         "userAgent": "",
         "debug": false,
-        "clearCache": true
+        "clearCache": false
     },
     "android": {
         "name": "自用邮箱",
@@ -31,7 +31,7 @@
         "screenOn": false,
         "userAgent": "",
         "debug": false,
-        "clearCache": true
+        "clearCache": false
     },
     "phone": {
         "launchImage": false,
