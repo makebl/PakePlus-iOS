@@ -293,6 +293,15 @@ jobs:
                     c.android.id = process.env.BUNDLE_ID;
                     c.android.version = process.env.VERSION;
                     c.android.clearCache = process.env.CLEAR_CACHE === 'true';
+                    // 补全 ppworker 需要但 ppconfig.json 中缺失的字段
+                    if (!c.android.input) c.android.input = './app-icon.png';
+                    if (!c.android.output) c.android.output = './res';
+                    if (!c.android.copyTo) c.android.copyTo = './app/src/main/res';
+                    if (!c.android.isHtml) c.android.isHtml = false;
+                    if (!c.android.pubBody) c.android.pubBody = c.android.desc || 'App packaged by PakePlus';
+                    if (!c.android.icon) c.android.icon = './app-icon.png';
+                    if (!c.android.rounded) c.android.rounded = true;
+                    if (!c.android.androidResDir) c.android.androidResDir = './app/src/main/res';
                     fs.writeFileSync(p, JSON.stringify(c, null, 4));
                     console.log('Patched Android config:');
                     console.log(JSON.stringify(c.android, null, 2));
