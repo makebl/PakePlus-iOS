@@ -24,13 +24,13 @@ on:
                 required: false
                 default: ''
             custom_js:
+                description: '自定义注入脚本（留空用默认：禁止跳转+下拉刷新）'
+                required: false
+                default: ''
             clear_cache:
                 description: '每次启动清理缓存（保留 Cookie/登录状态）'
                 required: false
                 default: 'true'
-                description: '自定义注入脚本（留空用默认：禁止跳转+下拉刷新）'
-                required: false
-                default: ''
 
 permissions:
     contents: write
