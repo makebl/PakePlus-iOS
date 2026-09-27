@@ -66,25 +66,116 @@ jobs:
                   echo "VERSION=$VERSION" >> $GITHUB_ENV
                   echo "Version: $VERSION"
 
-            - name: Download App Icon
-              shell: bash
+            - name: Download & Generate AppIcon
               env:
                   APP_ICON: ${{ inputs.app_icon }}
               run: |
-                  if [ -n "$APP_ICON" ]; then
-                    echo "下载应用图标: $APP_ICON"
-                    curl -sL -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" -o app-icon.png "$APP_ICON" || echo "下载失败，使用默认图标"
-                    FILE_SIZE=$(stat -f%z app-icon.png 2>/dev/null || echo 0)
-                    echo "下载文件大小: $FILE_SIZE bytes"
-                    if [ "$FILE_SIZE" -lt 1000 ]; then
-                      echo "文件太小，可能下载失败，使用默认图标"
-                      rm -f app-icon.png
-                    fi
-                  else
-                    echo "未提供图标 URL，使用默认 app-icon.png"
+                  set +e
+                  echo "=== 图标处理开始 ==="
+                  if [ -z "$APP_ICON" ]; then
+                    echo "未提供图标 URL，使用项目默认图标"
+                    exit 0
                   fi
-                  ls -la app-icon.png 2>/dev/null || echo "app-icon.png 不存在"
-
+                  
+                  echo "下载图标: $APP_ICON"
+                  npm install --prefix /tmp sharp 2>&1 | tail -2
+                  export NODE_PATH=/tmp/node_modules
+                  
+                  cat > /tmp/process-icon.js << "ENDSCRIPT"
+                  const https = require("https");
+                  const http = require("http");
+                  const fs = require("fs");
+                  const url = process.env.APP_ICON;
+                  
+                  const headers = {
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Cache-Control": "no-cache",
+                    "Pragma": "no-cache"
+                  };
+                  
+                  function download(u, redirects) {
+                    if (redirects > 8) { console.log("重定向次数过多"); process.exit(1); }
+                    const mod = u.startsWith("https") ? https : http;
+                    const req = mod.get(u, { headers }, (res) => {
+                      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                        let nextUrl = res.headers.location;
+                        if (!nextUrl.startsWith("http")) {
+                          try {
+                            const uObj = new URL(u);
+                            nextUrl = uObj.origin + (nextUrl.startsWith("/") ? nextUrl : "/" + nextUrl);
+                          } catch(e) { console.log("重定向URL解析失败"); process.exit(1); }
+                        }
+                        console.log("重定向到:", nextUrl.substring(0, 80));
+                        download(nextUrl, redirects + 1);
+                        return;
+                      }
+                      if (res.statusCode !== 200) {
+                        console.log("下载失败，状态码:", res.statusCode);
+                        process.exit(1);
+                      }
+                      const chunks = [];
+                      res.on("data", (c) => chunks.push(c));
+                      res.on("end", () => {
+                        const buf = Buffer.concat(chunks);
+                        console.log("下载完成，大小:", buf.length, "bytes");
+                        if (buf.length < 2000) {
+                          console.log("文件太小，可能不是有效图片");
+                          process.exit(1);
+                        }
+                        processIcon(buf);
+                      });
+                    });
+                    req.on("error", (e) => { console.log("下载出错:", e.message); process.exit(1); });
+                    req.setTimeout(15000, () => { req.destroy(); console.log("下载超时"); process.exit(1); });
+                  }
+                  
+                  async function processIcon(buf) {
+                    let sharp;
+                    try { sharp = require("sharp"); } catch(e) { console.log("sharp 不可用"); }
+                    if (sharp) {
+                      try {
+                        await sharp(buf)
+                          .resize(1024, 1024, { fit: "cover", position: "center" })
+                          .png()
+                          .toFile("app-icon.png");
+                        const info = await sharp(fs.readFileSync("app-icon.png")).metadata();
+                        console.log("sharp 处理成功:", info.width + "x" + info.height, info.format);
+                        return;
+                      } catch (err) {
+                        console.log("sharp 处理失败:", err.message);
+                      }
+                    }
+                    fs.writeFileSync("app-icon.png", buf);
+                    console.log("已保存原始文件");
+                  }
+                  
+                  download(url, 0);
+                  ENDSCRIPT
+                  
+                  node /tmp/process-icon.js
+                  RESULT=$?
+                  
+                  if [ $RESULT -ne 0 ] || [ ! -f app-icon.png ]; then
+                    echo "图标下载/处理失败，使用项目默认图标"
+                    rm -f app-icon.png
+                    exit 0
+                  fi
+                  
+                  echo "图标处理完成:"
+                  ls -la app-icon.png
+                  
+                  echo "生成 AppIcon.appiconset..."
+                  brew install Nonchalant/appicon/appicon 2>&1 | tail -3
+                  appicon app-icon.png --output-path ./PakePlus/Assets.xcassets/AppIcon.appiconset
+                  if [ $? -ne 0 ]; then
+                    echo "appicon 失败，使用默认图标"
+                    exit 0
+                  fi
+                  echo "AppIcon 生成成功"
+                  ls -la ./PakePlus/Assets.xcassets/AppIcon.appiconset/ | head -10
             - name: Patch ppconfig.json
               shell: bash
               env:
@@ -155,67 +246,97 @@ jobs:
                   grep -A1 'CFBundleDisplayName' PakePlus/Info.plist || echo "CFBundleDisplayName not found"
                   grep -A1 'WEBURL' PakePlus/Info.plist || echo "WEBURL not found"
 
-            - name: Generate AppIcon
+            - name: Patch iOS Cookie Persistence
               run: |
-                  set +e
-                  echo 'Installing appicon tool...'
-                  brew install Nonchalant/appicon/appicon
-                  echo 'Checking icon file...'
-                  if [ ! -f app-icon.png ]; then
-                    echo 'app-icon.png not found, using default icon'
-                    exit 0
-                  fi
-                  # 检查文件大小是否合理（小于 100 字节认为无效）
-                  FILE_SIZE=$(stat -f%z app-icon.png 2>/dev/null || echo 0)
-                  if [ "$FILE_SIZE" -lt 100 ]; then
-                    echo 'Icon file too small ($FILE_SIZE bytes), using default icon'
-                    exit 0
-                  fi
-                  # 尝试用 sips 读取尺寸，判断是否有效图片
-                  WIDTH=$(sips -g pixelWidth app-icon.png 2>/dev/null | grep pixelWidth | awk '{print $2}')
-                  HEIGHT=$(sips -g pixelHeight app-icon.png 2>/dev/null | grep pixelHeight | awk '{print $2}')
-                  echo 'Original icon dimensions: ${WIDTH}x${HEIGHT}'
-                  # 如果 sips 读不出尺寸，尝试用 sips 转 PNG 格式
-                  if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ] || [ "$WIDTH" = '<nil>' ]; then
-                    echo 'sips cannot read icon, trying format conversion...'
-                    sips -s format png app-icon.png --out app-icon-converted.png 2>/dev/null
-                    if [ -f app-icon-converted.png ]; then
-                      mv app-icon-converted.png app-icon.png
-                      WIDTH=$(sips -g pixelWidth app-icon.png 2>/dev/null | grep pixelWidth | awk '{print $2}')
-                      HEIGHT=$(sips -g pixelHeight app-icon.png 2>/dev/null | grep pixelHeight | awk '{print $2}')
-                      echo 'After conversion: ${WIDTH}x${HEIGHT}'
-                    fi
-                  fi
-                  # 如果还是无效，直接用默认图标
-                  if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ] || [ "$WIDTH" = '<nil>' ]; then
-                    echo 'Cannot parse icon file, using default icon'
-                    exit 0
-                  fi
-                  # 缩放到 1024x1024
-                  if [ "$WIDTH" -ne 1024 ] || [ "$HEIGHT" -ne 1024 ]; then
-                    echo 'Icon size is ${WIDTH}x${HEIGHT}, resizing to 1024x1024...'
-                    sips -s format png app-icon.png --out app-icon.tmp.png 2>/dev/null
-                    if [ -f app-icon.tmp.png ]; then
-                      if [ "$WIDTH" != "$HEIGHT" ]; then
-                        sips -c 1024 1024 app-icon.tmp.png --out app-icon.tmp.png 2>/dev/null
-                      fi
-                      sips -z 1024 1024 app-icon.tmp.png --out app-icon.tmp.png 2>/dev/null
-                      mv app-icon.tmp.png app-icon.png
-                    else
-                      echo 'Warning: cannot resize icon, using default'
-                      exit 0
-                    fi
-                  fi
-                  echo 'Final icon size:'
-                  sips -g pixelWidth -g pixelHeight app-icon.png
-                  echo 'Generating AppIcon...'
-                  appicon app-icon.png --output-path ./PakePlus/Assets.xcassets/AppIcon.appiconset
-                  if [ $? -ne 0 ]; then
-                    echo 'appicon tool failed, using default icon'
-                    exit 0
-                  fi
-                  echo 'AppIcon generated successfully'
-                  ls -la ./PakePlus/Assets.xcassets/AppIcon.appiconset/ | head -10
+                  cat > /tmp/patch-cookie.js << "ENDSCRIPT"
+                  const fs = require("fs");
+                  const f = "PakePlus/WebView.swift";
+                  if (!fs.existsSync(f)) { console.log("未找到 WebView.swift"); process.exit(0); }
+                  let c = fs.readFileSync(f, "utf8");
+                  if (c.includes("PakePlusSavedCookies")) {
+                    console.log("Cookie 持久化已添加，跳过");
+                    process.exit(0);
+                  }
+                  
+                  // 1. 在 webView 加载前恢复 Cookie，并监听后台保存
+                  const injectCode = [
+                    "",
+                    "        // MARK: - Cookie 手动持久化",
+                    "        WebView.restoreSavedCookies(to: webConfiguration.websiteDataStore.httpCookieStore)",
+                    "        // App 进入后台时保存 Cookie",
+                    "        NotificationCenter.default.addObserver(",
+                    "            forName: UIApplication.didEnterBackgroundNotification,",
+                    "            object: nil, queue: .main) { _ in",
+                    "            WebView.saveCookies(from: webView.configuration.websiteDataStore.httpCookieStore)",
+                    "        }",
+                  ].join("\n");
+                  
+                  c = c.replace(
+                    "// load custom script (at documentStart",
+                    injectCode + "\n        // load custom script (at documentStart"
+                  );
+                  
+                  // 2. didFinish 时保存 Cookie
+                  const saveInDidFinish = [
+                    "        // 保存 Cookie 到本地",
+                    "        WebView.saveCookies(from: webView.configuration.websiteDataStore.httpCookieStore)",
+                  ].join("\n");
+                  
+                  c = c.replace(
+                    "onLoadFinished?()\n        }\n    }\n\n    func webView(_ webView: WKWebView, didFail",
+                    "onLoadFinished?()\n" + saveInDidFinish + "\n        }\n    }\n\n    func webView(_ webView: WKWebView, didFail"
+                  );
+                  
+                  // 3. 在 extension WebView 中添加静态方法
+                  const methods = [
+                    "",
+                    "    // MARK: - Cookie 持久化",
+                    "    static func saveCookies(from store: WKHTTPCookieStore) {",
+                    "        store.getAllCookies { cookies in",
+                    "            let data = cookies.map { cookie -> [String: Any] in",
+                    "                var dict: [String: Any] = [",
+                    "                    \"name\": cookie.name, \"value\": cookie.value,",
+                    "                    \"domain\": cookie.domain, \"path\": cookie.path,",
+                    "                    \"secure\": cookie.isSecure, \"httpOnly\": cookie.isHTTPOnly",
+                    "                ]",
+                    "                if let e = cookie.expiresDate { dict[\"expires\"] = e }",
+                    "                return dict",
+                    "            }",
+                    "            UserDefaults.standard.set(data, forKey: \"PakePlusSavedCookies\")",
+                    "            UserDefaults.standard.synchronize()",
+                    "            print(\"[Cookie] 已保存 \\(cookies.count) 个\")",
+                    "        }",
+                    "    }",
+                    "",
+                    "    static func restoreSavedCookies(to store: WKHTTPCookieStore) {",
+                    "        guard let data = UserDefaults.standard.array(forKey: \"PakePlusSavedCookies\") as? [[String: Any]] else {",
+                    "            print(\"[Cookie] 无已保存的 Cookie\");",
+                    "            return",
+                    "        }",
+                    "        print(\"[Cookie] 恢复 \\(data.count) 个 Cookie\");",
+                    "        for dict in data {",
+                    "            guard let name = dict[\"name\"] as? String,",
+                    "                  let value = dict[\"value\"] as? String,",
+                    "                  let domain = dict[\"domain\"] as? String,",
+                    "                  let path = dict[\"path\"] as? String else { continue }",
+                    "            var props: [HTTPCookiePropertyKey: Any] = [",
+                    "                .name: name, .value: value, .domain: domain, .path: path,",
+                    "                .secure: dict[\"secure\"] as? Bool ?? false",
+                    "            ]",
+                    "            if let expires = dict[\"expires\"] as? Date { props[.expires] = expires }",
+                    "            if let cookie = HTTPCookie(properties: props) {",
+                    "                store.setCookie(cookie) {}",
+                    "            }",
+                    "        }",
+                    "    }",
+                  ].join("\n");
+                  
+                  c = c.replace("extension WebView {", "extension WebView {" + methods);
+                  
+                  fs.writeFileSync(f, c, "utf8");
+                  console.log("Cookie 持久化 patch 完成");
+                  ENDSCRIPT
+                  node /tmp/patch-cookie.js
             - name: Build IPA
               shell: bash
               env:
