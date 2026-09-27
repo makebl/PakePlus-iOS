@@ -451,49 +451,70 @@ jobs:
               run: node ./scripts/ppworker.cjs || true
             - name: Patch Android Cookie & Cache Logic
               run: |
-                  cat > /tmp/patch-mainactivity.js << 'SCRIPT'
-                  const fs = require('fs');
-                  const file = 'app/src/main/java/com/app/pakeplus/MainActivity.kt';
-                  if (!fs.existsSync(file)) {
-                      console.log('未找到 MainActivity.kt，跳过');
-                      process.exit(0);
-                  }
-                  let code = fs.readFileSync(file, 'utf8');
-                  const cmImport = 'import android.webkit.CookieManager';
-                  if (!code.includes(cmImport)) {
-                      code = code.replace(/(import android\.webkit\.WebView\s*\n)/, '\ android.webkit.CookieManager\n');
+                  node -e "
+                    const fs = require('fs');
+                    const f = 'app/src/main/java/com/app/pakeplus/MainActivity.kt';
+                    if (!fs.existsSync(f)) { console.log('未找到，跳过'); process.exit(0); }
+                    let c = fs.readFileSync(f, 'utf8');
+
+                    // 1. 添加 CookieManager import
+                    if (!c.includes('import android.webkit.CookieManager')) {
+                      c = c.replace(
+                        'import android.webkit.WebView',
+                        'import android.webkit.WebView' + '\\n' + 'import android.webkit.CookieManager'
+                      );
                       console.log('已添加 CookieManager import');
-                  }
-                  const cookieSetup = '\n        // Cookie 持久化配置 - 确保登录状态在 App 重启后保留\n        try {\n            val cm = CookieManager.getInstance()\n            cm.setAcceptCookie(true)\n            cm.acceptThirdPartyCookies(webView)\n            cm.flush()\n        } catch (e: Exception) {\n            e.printStackTrace()\n        }\n';
-                  if (!code.includes('Cookie 持久化配置')) {
-                      code = code.replace(/(\/\/ set user agent)/, cookieSetup + '\n        // set user agent');
+                    }
+
+                    // 2. 添加 Cookie 持久化配置（在 // set user agent 之前）
+                    if (!c.includes('Cookie 持久化配置')) {
+                      const cookieCode = '// Cookie 持久化配置 - 确保登录状态在 App 重启后保留' + '\\n' +
+                        '        try {' + '\\n' +
+                        '            val cm = CookieManager.getInstance()' + '\\n' +
+                        '            cm.setAcceptCookie(true)' + '\\n' +
+                        '            cm.acceptThirdPartyCookies(webView)' + '\\n' +
+                        '            cm.flush()' + '\\n' +
+                        '        } catch (e: Exception) {' + '\\n' +
+                        '            e.printStackTrace()' + '\\n' +
+                        '        }';
+                      c = c.replace('// set user agent', cookieCode + '\\n        // set user agent');
                       console.log('已添加 Cookie 持久化配置');
-                  }
-                  if (code.includes('webView.clearCache(true)')) {
-                      code = code.replace(
-                          'webView.clearCache(true)',
-                          '// 只清 HTTP 缓存，保留 Cookie 和 localStorage\n            webView.clearCache(false)\n            android.webkit.WebStorage.getInstance().deleteAllData()'
+                    }
+
+                    // 3. 修改 clearCache
+                    if (c.includes('webView.clearCache(true)')) {
+                      c = c.replace(
+                        'webView.clearCache(true)',
+                        '// 只清 HTTP 缓存，保留 Cookie 和 localStorage' + '\\n' +
+                        '            webView.clearCache(false)' + '\\n' +
+                        '            android.webkit.WebStorage.getInstance().deleteAllData()'
                       );
                       console.log('已修改 clearCache 逻辑');
-                  }
-                  if (!code.includes('flush() // 持久化 Cookie')) {
-                      code = code.replace(
-                          /(override fun onPause\(\) \{\s*\n\s*super\.onPause\(\)\s*\n\s*webView\.onPause\(\))/,
-                          '\\n        try {\n            CookieManager.getInstance().flush() // 持久化 Cookie 到磁盘\n        } catch (e: Exception) { e.printStackTrace() }'
+                    }
+
+                    // 4. onPause 时 flush Cookie
+                    if (!c.includes('/* 持久化 Cookie */')) {
+                      c = c.replace(
+                        'webView.onPause()',
+                        'webView.onPause()' + '\\n' +
+                        '        try { CookieManager.getInstance().flush() /* 持久化 Cookie */ } catch (e: Exception) { e.printStackTrace() }'
                       );
                       console.log('已添加 onPause Cookie flush');
-                  }
-                  if (!code.match(/onDestroy[\s\S]*?CookieManager/)) {
-                      code = code.replace(
-                          /(override fun onDestroy\(\) \{[\s\S]*?webView\.destroy\(\))/,
-                          '\\n        try {\n            CookieManager.getInstance().flush() // 确保 Cookie 持久化\n        } catch (e: Exception) { e.printStackTrace() }'
+                    }
+
+                    // 5. onDestroy 时 flush Cookie
+                    if (!c.includes('/* 确保 Cookie 持久化 */')) {
+                      c = c.replace(
+                        'webView.destroy()',
+                        'webView.destroy()' + '\\n' +
+                        '        try { CookieManager.getInstance().flush() /* 确保 Cookie 持久化 */ } catch (e: Exception) { e.printStackTrace() }'
                       );
                       console.log('已添加 onDestroy Cookie flush');
-                  }
-                  fs.writeFileSync(file, code, 'utf8');
-                  console.log('✅ MainActivity.kt 补丁完成');
-                  SCRIPT
-                  node /tmp/patch-mainactivity.js
+                    }
+
+                    fs.writeFileSync(f, c, 'utf8');
+                    console.log('✅ 补丁完成');
+                  "
 
             - name: Grant Execute Permission
               run: chmod +x ./gradlew
