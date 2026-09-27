@@ -359,7 +359,7 @@ jobs:
                     rm -f app-icon.png
                     # 用 identify 检测源文件格式并转换为 PNG
                     identify icon-src 2>&1 || true
-                    convert icon-src -resize 512x512 app-icon.png 2>&1
+                    convert icon-src -resize 512x512 app-icon.png 2>&1 || true
                     if [ -f app-icon.png ]; then
                       echo "图标转换成功"
                       file app-icon.png
