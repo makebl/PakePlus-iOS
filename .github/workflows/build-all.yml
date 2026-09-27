@@ -73,11 +73,17 @@ jobs:
               run: |
                   if [ -n "$APP_ICON" ]; then
                     echo "下载应用图标: $APP_ICON"
-                    curl -sL -o app-icon.png "$APP_ICON" || echo "下载失败，使用默认图标"
+                    curl -sL -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" -o app-icon.png "$APP_ICON" || echo "下载失败，使用默认图标"
+                    FILE_SIZE=$(stat -f%z app-icon.png 2>/dev/null || echo 0)
+                    echo "下载文件大小: $FILE_SIZE bytes"
+                    if [ "$FILE_SIZE" -lt 1000 ]; then
+                      echo "文件太小，可能下载失败，使用默认图标"
+                      rm -f app-icon.png
+                    fi
                   else
                     echo "未提供图标 URL，使用默认 app-icon.png"
                   fi
-                  ls -la app-icon.png
+                  ls -la app-icon.png 2>/dev/null || echo "app-icon.png 不存在"
 
             - name: Patch ppconfig.json
               shell: bash
@@ -298,7 +304,7 @@ jobs:
               run: |
                   if [ -n "$APP_ICON" ]; then
                     echo "下载应用图标: $APP_ICON"
-                    curl -sL -o icon-src "$APP_ICON" 2>/dev/null || echo "下载失败"
+                    curl -sL -A "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36" -o icon-src "$APP_ICON" 2>/dev/null || echo "下载失败"
                     if [ -f icon-src ]; then
                       echo "下载成功"
                       file -b icon-src
