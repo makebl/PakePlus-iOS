@@ -374,6 +374,18 @@ jobs:
             - name: Run ppworker
               run: pnpm pp:worker
 
+            - name: Patch Android Cache Logic
+              run: |
+                  # 修改 MainActivity.kt: clearCache(true) 改为只清 HTTP 缓存，保留 Cookie
+                  MAIN_FILE="app/src/main/java/com/app/pakeplus/MainActivity.kt"
+                  if [ -f "" ]; then
+                    # 替换 webView.clearCache(true) 为只清 HTTP 缓存但保留 Cookie 的实现
+                    sed -i 's|webView.clearCache(true)|// 只清 HTTP 缓存，保留 Cookie/localStorage\n            webView.clearCache(false)\n            android.webkit.WebStorage.getInstance().deleteAllData()\n            try {\n                val cm = android.webkit.CookieManager.getInstance()\n                cm.flush()\n            } catch (e: Exception) {\n                e.printStackTrace()\n            }|' ""
+                    echo "已修改 MainActivity.kt: clearCache 保留 Cookie"
+                  else
+                    echo "未找到 MainActivity.kt，跳过"
+                  fi
+
             - name: Grant Execute Permission
               run: chmod +x ./gradlew
 
