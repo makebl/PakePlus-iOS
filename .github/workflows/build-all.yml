@@ -366,19 +366,75 @@ jobs:
                   if [ -f icon-src ]; then
                     # 先删除默认图标，避免混淆
                     rm -f app-icon.png
-                    # 用 identify 检测源文件格式并转换为 PNG
-                    identify icon-src 2>&1 || true
-                    convert icon-src -resize 512x512 app-icon.png 2>&1 || true
+                    # 尝试用 ImageMagick 转换（指定输入格式，避免格式识别失败）
+                    # 先检测文件真实类型
+                    FILE_TYPE=$(file -b icon-src 2>/dev/null || echo "unknown")
+                    echo "源文件类型: $FILE_TYPE"
+                    # 根据类型选择转换方式
+                    case "$FILE_TYPE" in
+                      *JPEG*|*jpeg*|*JPG*)
+                        convert icon-src -resize 512x512 app-icon.png 2>&1 || true
+                        ;;
+                      *PNG*)
+                        convert icon-src -resize 512x512 app-icon.png 2>&1 || true
+                        ;;
+                      *GIF*)
+                        convert "icon-src[0]" -resize 512x512 app-icon.png 2>&1 || true
+                        ;;
+                      *ICO*|*icon*)
+                        convert "icon-src[0]" -resize 512x512 app-icon.png 2>&1 || true
+                        ;;
+                      *WebP*|*WEBP*)
+                        convert icon-src -resize 512x512 app-icon.png 2>&1 || true
+                        ;;
+                      *SVG*|*XML*)
+                        convert icon-src -resize 512x512 app-icon.png 2>&1 || true
+                        ;;
+                      *)
+                        # 未知格式，尝试用 curl 重新下载并指定为 png
+                        echo "未知格式，尝试通用转换"
+                        convert icon-src -resize 512x512 app-icon.png 2>&1 || true
+                        ;;
+                    esac
+                    # 如果转换失败，尝试用 curl 重新下载
+                    if [ ! -f app-icon.png ]; then
+                      echo "第一次转换失败，尝试用 curl 重新下载"
+                      curl -sL -o app-icon.png "$APP_ICON" 2>/dev/null || true
+                      if [ -f app-icon.png ]; then
+                        # 检查下载的是否是有效图片
+                        FILE_CHECK=$(file -b app-icon.png 2>/dev/null || echo "unknown")
+                        echo "下载文件类型: $FILE_CHECK"
+                        case "$FILE_CHECK" in
+                          *PNG*|*JPEG*|*JPG*|*GIF*|*WebP*)
+                            # 有效图片但可能不是 PNG，转换一下
+                            convert app-icon.png -resize 512x512 app-icon-temp.png 2>&1 && mv app-icon-temp.png app-icon.png || true
+                            ;;
+                          *)
+                            # 不是图片，删除
+                            rm -f app-icon.png
+                            ;;
+                        esac
+                      fi
+                    fi
+                    # 最终检查
                     if [ -f app-icon.png ]; then
                       echo "图标转换成功"
                       file app-icon.png
                     else
-                      echo "图标转换失败，使用默认图标"
+                      echo "图标转换失败，使用仓库默认图标"
+                      # PakePlus-Android 仓库自带 app-icon.png，确保它存在
+                      if [ -f app-icon.png ]; then
+                        echo "默认图标已存在"
+                      else
+                        echo "警告: app-icon.png 不存在，ppworker 可能会失败"
+                      fi
                     fi
                     rm -f icon-src
                   else
                     echo "无自定义图标，使用默认"
                   fi
+              env:
+                  APP_ICON: ${{ inputs.app_icon }}
 
             - name: Run ppworker
               run: pnpm pp:worker
