@@ -268,7 +268,7 @@ jobs:
               run: |
                   if [ -n "$APP_ICON" ]; then
                     echo "下载应用图标: $APP_ICON"
-                    wget -q -O app-icon.raw "$APP_ICON" || echo "下载失败，使用默认图标"
+                    wget -q -O icon-src "$APP_ICON" || echo "下载失败，使用默认图标"
                   else
                     echo "未提供图标 URL，使用默认"
                   fi
@@ -351,16 +351,19 @@ jobs:
 
             - name: Convert App Icon to PNG
               run: |
-                  if [ -f app-icon.raw ]; then
-                    convert app-icon.raw -resize 512x512 app-icon.png 2>&1 || true
+                  if [ -f icon-src ]; then
+                    # 先删除默认图标，避免混淆
+                    rm -f app-icon.png
+                    # 用 identify 检测源文件格式并转换为 PNG
+                    identify icon-src 2>&1 || true
+                    convert icon-src -resize 512x512 app-icon.png 2>&1
                     if [ -f app-icon.png ]; then
                       echo "图标转换成功"
                       file app-icon.png
-                      rm -f app-icon.raw
                     else
                       echo "图标转换失败，使用默认图标"
-                      rm -f app-icon.raw
                     fi
+                    rm -f icon-src
                   else
                     echo "无自定义图标，使用默认"
                   fi
